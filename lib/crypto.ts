@@ -14,14 +14,14 @@ export async function exportPrivateKeyEncrypted(privateKey: CryptoKey, password:
   const raw = await crypto.subtle.exportKey("pkcs8", privateKey);
   const keyMaterial = await crypto.subtle.importKey("raw", new TextEncoder().encode(password), "PBKDF2", false, ["deriveKey"]);
   const aesKey = await crypto.subtle.deriveKey(
-    { name: "PBKDF2", salt, iterations: 100000, hash: "SHA-256" },
+    { name: "PBKDF2", salt: salt as BufferSource, iterations: 100000, hash: "SHA-256" },
     keyMaterial,
     { name: "AES-GCM", length: 256 },
     false,
     ["encrypt"]
   );
   const iv = crypto.getRandomValues(new Uint8Array(12));
-  const encrypted = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, aesKey, raw);
+  const encrypted = await crypto.subtle.encrypt({ name: "AES-GCM", iv: iv as BufferSource }, aesKey, raw);
   const combined = new Uint8Array(iv.length + encrypted.byteLength);
   combined.set(iv);
   combined.set(new Uint8Array(encrypted), iv.length);
@@ -34,13 +34,13 @@ export async function importPrivateKeyEncrypted(encryptedB64: string, password: 
   const ciphertext = combined.slice(12);
   const keyMaterial = await crypto.subtle.importKey("raw", new TextEncoder().encode(password), "PBKDF2", false, ["deriveKey"]);
   const aesKey = await crypto.subtle.deriveKey(
-    { name: "PBKDF2", salt, iterations: 100000, hash: "SHA-256" },
+    { name: "PBKDF2", salt: salt as BufferSource, iterations: 100000, hash: "SHA-256" },
     keyMaterial,
     { name: "AES-GCM", length: 256 },
     false,
     ["decrypt"]
   );
-  const decrypted = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, aesKey, ciphertext);
+  const decrypted = await crypto.subtle.decrypt({ name: "AES-GCM", iv: iv as BufferSource }, aesKey, ciphertext);
   return crypto.subtle.importKey("pkcs8", decrypted, { name: "RSA-OAEP", hash: "SHA-256" }, true, ["decrypt"]);
 }
 
@@ -48,7 +48,7 @@ export async function encryptMessage(content: string, recipientPublicKeyJwk: Jso
   const symKey = await crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, true, ["encrypt", "decrypt"]);
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const encoded = new TextEncoder().encode(content);
-  const encryptedContent = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, symKey, encoded);
+  const encryptedContent = await crypto.subtle.encrypt({ name: "AES-GCM", iv: iv as BufferSource }, symKey, encoded);
 
   const publicKey = await crypto.subtle.importKey("jwk", recipientPublicKeyJwk, { name: "RSA-OAEP", hash: "SHA-256" }, false, ["encrypt"]);
   const rawSymKey = await crypto.subtle.exportKey("raw", symKey);
@@ -65,7 +65,7 @@ export async function decryptMessage(encryptedContent: string, encryptedKey: str
   const symKeyRaw = await crypto.subtle.decrypt({ name: "RSA-OAEP" }, privateKey, Uint8Array.from(atob(encryptedKey), (c) => c.charCodeAt(0)));
   const symKey = await crypto.subtle.importKey("raw", symKeyRaw, { name: "AES-GCM", length: 256 }, false, ["decrypt"]);
   const iv = Uint8Array.from(atob(nonce), (c) => c.charCodeAt(0));
-  const decrypted = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, symKey, Uint8Array.from(atob(encryptedContent), (c) => c.charCodeAt(0)));
+  const decrypted = await crypto.subtle.decrypt({ name: "AES-GCM", iv: iv as BufferSource }, symKey, Uint8Array.from(atob(encryptedContent), (c) => c.charCodeAt(0)));
   return new TextDecoder().decode(decrypted);
 }
 
