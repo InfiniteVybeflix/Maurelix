@@ -32,7 +32,7 @@ export default function CyclePage() {
           if (pred) {
             pred.user_id = authUser.id;
             setPrediction(pred);
-            supabase.from("cycle_predictions").upsert({ user_id: authUser.id, ...pred }).then(() => {});
+            supabase.from("cycle_predictions").upsert({ ...pred }).then(() => {});
           }
         }
       });
@@ -50,7 +50,7 @@ export default function CyclePage() {
       if (pred) {
         pred.user_id = authUser.id;
         setPrediction(pred);
-        await supabase.from("cycle_predictions").upsert({ user_id: authUser.id, ...pred });
+        await supabase.from("cycle_predictions").upsert({ ...pred });
       }
       setShowForm(false);
     }
