@@ -9,6 +9,10 @@ export const metadata: Metadata = {
   title: "Maurelix — Where Love Grows",
   description: "A zero-cost PWA couples operating system.",
   manifest: "/manifest.json",
+  icons: {
+    icon: "/icon-192x192.png",
+    apple: "/icon-192x192.png",
+  },
   appleWebApp: { capable: true, statusBarStyle: "default", title: "Maurelix" },
 };
 
@@ -23,9 +27,6 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <head>
-        <link rel="apple-touch-icon" href="/icon-192x192.svg" />
-      </head>
       <body className={inter.className}>
         <ThemeProvider>{children}</ThemeProvider>
         <script

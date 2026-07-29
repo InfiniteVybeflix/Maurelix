@@ -26,24 +26,34 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
 SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
 NEXT_PUBLIC_AEVIBRON_GATEWAY_URL=https://your-gateway.vercel.app/api/v1/chat
 AEVIBRON_API_KEY=your_aevibron_key
-NEXT_PUBLIC_APP_URL=http://localhost:3000
+NEXT_PUBLIC_APP_URL=https://maurelix.vercel.app
 ```
 
-### 3. Supabase Schema
-Open Supabase SQL Editor and run the full schema from `schema.sql` (included in the SQL section of the build prompt, or reconstruct from `types/database.ts`).
+### 3. Supabase Configuration
 
-**Required tables:** profiles, couples, device_keys, vaults, messages, attachments, cycle_logs, cycle_predictions, memory_pins, quests, token_balance, webrtc_signals, notifications, feedback, game_sessions, gratitude_jar.
+**Auth Redirect URLs:**
+Go to Supabase Dashboard → Authentication → URL Configuration. Add:
+- `https://maurelix.vercel.app/auth/callback`
+- `https://maurelix.vercel.app/auth/confirmed`
 
-**Required buckets:** `avatars`, `attachments`.
+**Email Template (Confirm Signup):**
+Set the redirect URL in the email template to:
+```
+{{ .SiteURL }}/auth/callback?code={{ .TokenHash }}
+```
 
-**Required trigger:** `on_auth_user_created` on `auth.users`.
+**Required Tables:** Run `supabase/schema.sql` in the SQL Editor.
+
+**Required Storage Buckets:** Create `avatars` and `attachments` in Storage.
+
+**Required Trigger:** `on_auth_user_created` on `auth.users` (included in schema).
 
 ### 4. Icons (PWA)
 Place your app icons in `/public/`:
 - `icon-192x192.png` — 192x192 PNG
 - `icon-512x512.png` — 512x512 PNG
 
-These are referenced by `manifest.json` and the service worker.
+These are referenced by `manifest.json`, `layout.tsx`, and the landing page.
 
 ### 5. Run
 ```bash
@@ -54,6 +64,17 @@ npm run dev
 ```bash
 vercel --prod
 ```
+
+## Admin Panel Access
+
+1. **Sign up** normally through the app at `https://maurelix.vercel.app/signup`
+2. Go to your **Supabase Dashboard** → **Table Editor** → **`profiles`**
+3. Find your user row (filter by your email)
+4. Toggle **`is_admin`** to `true`
+5. Save the row
+6. Navigate to `https://maurelix.vercel.app/admin`
+
+The `AdminGuard` component checks `profiles.is_admin`. If true, the dashboard loads. If false, you are redirected to `/app/chat`.
 
 ## Features
 - **E2EE Chat** — Shared Space + Private Vault with RSA-OAEP + AES-GCM

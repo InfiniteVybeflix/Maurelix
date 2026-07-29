@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { Heart, Mail, Lock, Loader2 } from "lucide-react";
+import { Mail, Lock, Loader2 } from "lucide-react";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
@@ -24,56 +24,56 @@ export default function LoginPage() {
     else router.push("/app");
   };
 
-  const handleOAuth = async (provider: "google" | "github") => {
-    await supabase.auth.signInWithOAuth({ provider, options: { redirectTo: `${window.location.origin}/auth/callback` } });
+  const handleOAuth = async () => {
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || window.location.origin;
+    await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: { redirectTo: `${appUrl}/auth/callback` },
+    });
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center px-4">
-      <div className="w-full max-w-sm">
+    <div className="min-h-screen flex items-center justify-center px-4 bg-[#0a0a1a]">
+      <div className="absolute inset-0 bg-gradient-to-b from-[#0a0a1a] via-[#1a1a3e] to-[#2d1b4e]" />
+      <div className="relative z-10 w-full max-w-sm">
         <div className="text-center mb-8">
-          <Heart className="w-10 h-10 text-[var(--accent)] fill-[var(--accent)] mx-auto mb-3" />
-          <h1 className="text-2xl font-bold">Welcome back</h1>
-          <p className="text-sm text-[var(--muted-foreground)]">Sign in to Maurelix</p>
+          <img src="/icon-192x192.png" alt="Maurelix" className="w-16 h-16 mx-auto mb-4 rounded-2xl" style={{ boxShadow: "0 0 30px rgba(255,107,138,0.3)" }} />
+          <h1 className="text-2xl font-bold text-white">Welcome back</h1>
+          <p className="text-sm text-white/50">Sign in to Maurelix</p>
         </div>
 
         <form onSubmit={handleLogin} className="space-y-4">
           <div className="relative">
-            <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--muted-foreground)]" />
+            <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40" />
             <input type="email" required placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)}
-              className="w-full pl-10 pr-4 py-3 rounded-xl bg-[var(--card)] border border-[var(--border)] text-sm focus:outline-none focus:ring-2 focus:ring-[var(--accent)]" />
+              className="w-full pl-10 pr-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm placeholder:text-white/30 focus:outline-none focus:ring-2 focus:ring-[#FF6B8A] focus:border-transparent" />
           </div>
           <div className="relative">
-            <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--muted-foreground)]" />
+            <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40" />
             <input type="password" required placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)}
-              className="w-full pl-10 pr-4 py-3 rounded-xl bg-[var(--card)] border border-[var(--border)] text-sm focus:outline-none focus:ring-2 focus:ring-[var(--accent)]" />
+              className="w-full pl-10 pr-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm placeholder:text-white/30 focus:outline-none focus:ring-2 focus:ring-[#FF6B8A] focus:border-transparent" />
           </div>
-          {error && <p className="text-xs text-red-500">{error}</p>}
+          {error && <p className="text-xs text-red-400">{error}</p>}
           <button type="submit" disabled={loading}
-            className="w-full py-3 rounded-xl bg-[var(--accent)] text-white font-medium text-sm hover:opacity-90 transition disabled:opacity-50 flex items-center justify-center gap-2">
+            className="w-full py-3 rounded-xl text-white font-medium text-sm hover:opacity-90 transition disabled:opacity-50 flex items-center justify-center gap-2"
+            style={{ background: "linear-gradient(135deg, #FF6B8A 0%, #e94560 100%)" }}>
             {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : "Sign In"}
           </button>
         </form>
 
         <div className="flex items-center gap-3 my-6">
-          <div className="flex-1 h-px bg-[var(--border)]" />
-          <span className="text-xs text-[var(--muted-foreground)]">or</span>
-          <div className="flex-1 h-px bg-[var(--border)]" />
+          <div className="flex-1 h-px bg-white/10" />
+          <span className="text-xs text-white/30">or</span>
+          <div className="flex-1 h-px bg-white/10" />
         </div>
 
-        <div className="space-y-2">
-          <button onClick={() => handleOAuth("google")}
-            className="w-full py-2.5 rounded-xl border border-[var(--border)] bg-[var(--card)] text-sm font-medium hover:bg-[var(--muted)] transition">
-            Continue with Google
-          </button>
-          <button onClick={() => handleOAuth("github")}
-            className="w-full py-2.5 rounded-xl border border-[var(--border)] bg-[var(--card)] text-sm font-medium hover:bg-[var(--muted)] transition">
-            Continue with GitHub
-          </button>
-        </div>
+        <button onClick={handleOAuth}
+          className="w-full py-2.5 rounded-xl border border-white/10 bg-white/5 text-white text-sm font-medium hover:bg-white/10 transition">
+          Continue with Google
+        </button>
 
-        <p className="text-center text-xs text-[var(--muted-foreground)] mt-6">
-          Don&apos;t have an account? <Link href="/signup" className="text-[var(--accent)] font-medium">Sign up</Link>
+        <p className="text-center text-xs text-white/40 mt-6">
+          Don&apos;t have an account? <Link href="/signup" className="text-[#FF6B8A] font-medium hover:underline">Sign up</Link>
         </p>
       </div>
     </div>
