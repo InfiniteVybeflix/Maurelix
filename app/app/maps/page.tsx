@@ -45,7 +45,7 @@ export default function MapsPage() {
           if (prev.has(tileKey)) return prev;
           const next = new Set(prev);
           next.add(tileKey);
-          localStorage.setItem("maurelix-visited-tiles", JSON.stringify([...next]));
+          localStorage.setItem("maurelix-visited-tiles", JSON.stringify(Array.from(next)));
           return next;
         });
         checkGeofence(lat, lng);
