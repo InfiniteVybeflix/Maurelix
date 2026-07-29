@@ -3,9 +3,19 @@
 import { useState, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
 import AdminGuard from "@/components/admin/admin-guard";
-import { FeedbackItem, Profile } from "@/types";
-import { Users, MessageSquare, Phone, AlertCircle, CheckCircle, Clock, ArrowLeft } from "lucide-react";
+import { ArrowLeft, Users, MessageSquare, Phone, AlertCircle, CheckCircle, Clock } from "lucide-react";
 import { useRouter } from "next/navigation";
+
+interface FeedbackItem {
+  id: string;
+  user_id: string;
+  category: "bug" | "feature" | "spam";
+  title: string;
+  description: string;
+  screenshot_url: string | null;
+  status: "open" | "reviewing" | "resolved";
+  created_at: string;
+}
 
 export default function AdminPage() {
   return (
@@ -23,14 +33,14 @@ function AdminDashboard() {
   const [filter, setFilter] = useState<"all" | "open" | "reviewing" | "resolved">("all");
 
   useEffect(() => {
-    supabase.from("couples").select("id", { count: "exact" }).then(({ count }) => setStats((s) => ({ ...s, couples: count || 0 })));
-    supabase.from("messages").select("id", { count: "exact" }).then(({ count }) => setStats((s) => ({ ...s, messages: count || 0 })));
-    supabase.from("webrtc_signals").select("id", { count: "exact" }).then(({ count }) => setStats((s) => ({ ...s, calls: count || 0 })));
+    supabase.from("couples").select("id", { count: "exact", head: true }).then(({ count }) => setStats((s) => ({ ...s, couples: count || 0 })));
+    supabase.from("messages").select("id", { count: "exact", head: true }).then(({ count }) => setStats((s) => ({ ...s, messages: count || 0 })));
+    supabase.from("webrtc_signals").select("id", { count: "exact", head: true }).then(({ count }) => setStats((s) => ({ ...s, calls: count || 0 })));
     loadFeedback();
   }, [supabase]);
 
   const loadFeedback = async () => {
-    const { data } = await supabase.from("feedback").select("*, profiles(display_name)").order("created_at", { ascending: false });
+    const { data } = await supabase.from("feedback").select("*").order("created_at", { ascending: false });
     if (data) setFeedbackList(data as FeedbackItem[]);
   };
 
