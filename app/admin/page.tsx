@@ -34,7 +34,7 @@ function AdminDashboard() {
     if (data) setFeedbackList(data as FeedbackItem[]);
   };
 
-  const updateStatus = async (id: string, status: string) => {
+  const updateStatus = async (id: string, status: "open" | "reviewing" | "resolved") => {
     await supabase.from("feedback").update({ status }).eq("id", id);
     loadFeedback();
   };
