@@ -119,7 +119,6 @@ export function useMessages(coupleId: string | null, vaultId: string | null = nu
       if (forBoth) update.deleted_for_both = true;
       const { error } = await supabase.from("messages").update(update).eq("id", messageId);
       if (error) console.error("deleteMessage error:", error);
-      return !error;
     },
     [supabase]
   );
@@ -128,7 +127,6 @@ export function useMessages(coupleId: string | null, vaultId: string | null = nu
     async (messageId: string, pinned: boolean) => {
       const { error } = await supabase.from("messages").update({ pinned }).eq("id", messageId);
       if (error) console.error("pinMessage error:", error);
-      return !error;
     },
     [supabase]
   );
@@ -136,10 +134,10 @@ export function useMessages(coupleId: string | null, vaultId: string | null = nu
   const addReaction = useCallback(
     async (messageId: string, emoji: string) => {
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return false;
+      if (!user) return;
 
       const msg = messages.find((m) => m.id === messageId);
-      if (!msg) return false;
+      if (!msg) return;
 
       const reactions: Record<string, string[]> = { ...(msg.reactions as Record<string, string[]> || {}) };
       if (!reactions[emoji]) reactions[emoji] = [];
@@ -153,7 +151,6 @@ export function useMessages(coupleId: string | null, vaultId: string | null = nu
 
       const { error } = await supabase.from("messages").update({ reactions }).eq("id", messageId);
       if (error) console.error("addReaction error:", error);
-      return !error;
     },
     [messages, supabase]
   );
