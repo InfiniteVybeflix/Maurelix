@@ -1,98 +1,108 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { motion } from "framer-motion";
+import { ArrowLeft, Users, MessageSquare, Bug, Activity } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import AdminGuard from "@/components/admin/admin-guard";
-import { ArrowLeft, Users, MessageSquare, Phone, AlertCircle, CheckCircle, Clock } from "lucide-react";
-import { useRouter } from "next/navigation";
-
-interface FeedbackItem {
-  id: string;
-  user_id: string;
-  category: "bug" | "feature" | "spam";
-  title: string;
-  description: string;
-  screenshot_url: string | null;
-  status: "open" | "reviewing" | "resolved";
-  created_at: string;
-}
 
 export default function AdminPage() {
   return (
     <AdminGuard>
-      <AdminDashboard />
+      <AdminContent />
     </AdminGuard>
   );
 }
 
-function AdminDashboard() {
+function AdminContent() {
   const router = useRouter();
   const supabase = createClient();
-  const [stats, setStats] = useState({ couples: 0, messages: 0, calls: 0, feedback: 0 });
-  const [feedbackList, setFeedbackList] = useState<FeedbackItem[]>([]);
-  const [filter, setFilter] = useState<"all" | "open" | "reviewing" | "resolved">("all");
+  const [stats, setStats] = useState({ users: 0, couples: 0, messages: 0, feedback: 0 });
+  const [feedbackItems, setFeedbackItems] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    supabase.from("couples").select("id", { count: "exact", head: true }).then(({ count }) => setStats((s) => ({ ...s, couples: count || 0 })));
-    supabase.from("messages").select("id", { count: "exact", head: true }).then(({ count }) => setStats((s) => ({ ...s, messages: count || 0 })));
-    supabase.from("webrtc_signals").select("id", { count: "exact", head: true }).then(({ count }) => setStats((s) => ({ ...s, calls: count || 0 })));
-    loadFeedback();
-  }, [supabase]);
+    loadStats();
+  }, []);
 
-  const loadFeedback = async () => {
-    const { data } = await supabase.from("feedback").select("*").order("created_at", { ascending: false });
-    if (data) setFeedbackList(data as FeedbackItem[]);
+  const loadStats = async () => {
+    setLoading(true);
+    const { count: users } = await supabase.from("profiles").select("*", { count: "exact", head: true });
+    const { count: couples } = await supabase.from("couples").select("*", { count: "exact", head: true });
+    const { count: messages } = await supabase.from("messages").select("*", { count: "exact", head: true });
+    const { data: fb } = await supabase.from("feedback").select("*, profiles(display_name)").order("created_at", { ascending: false }).limit(20);
+    setStats({ users: users || 0, couples: couples || 0, messages: messages || 0, feedback: fb?.length || 0 });
+    setFeedbackItems(fb || []);
+    setLoading(false);
   };
 
-  const updateStatus = async (id: string, status: "open" | "reviewing" | "resolved") => {
+  const updateFeedbackStatus = async (id: string, status: string) => {
     await supabase.from("feedback").update({ status }).eq("id", id);
-    loadFeedback();
+    loadStats();
   };
 
-  const filtered = filter === "all" ? feedbackList : feedbackList.filter((f) => f.status === filter);
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center" style={{ background: "linear-gradient(180deg, #050510 0%, #0a0a1a 100%)" }}>
+        <div className="w-8 h-8 border-2 border-[#FF6B8A]/30 border-t-[#FF6B8A] rounded-full animate-spin" />
+      </div>
+    );
+  }
 
   return (
-    <div className="min-h-screen bg-[var(--background)]">
-      <header className="px-4 py-3 border-b border-[var(--border)] flex items-center gap-3">
-        <button onClick={() => router.push("/app/chat")} className="p-2 rounded-full hover:bg-[var(--muted)] transition"><ArrowLeft className="w-5 h-5" /></button>
-        <h1 className="text-lg font-bold">Admin Dashboard</h1>
-      </header>
-      <div className="p-4 max-w-4xl mx-auto space-y-6">
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <StatCard icon={Users} label="Couples" value={stats.couples} />
-          <StatCard icon={MessageSquare} label="Messages" value={stats.messages} />
-          <StatCard icon={Phone} label="Calls" value={stats.calls} />
-          <StatCard icon={AlertCircle} label="Feedback" value={stats.feedback} />
+    <div className="min-h-screen pb-8" style={{ background: "linear-gradient(180deg, #050510 0%, #0a0a1a 100%)" }}>
+      <div className="flex items-center gap-3 px-4 py-3 border-b border-white/[0.06]">
+        <button onClick={() => router.push("/app/chat")} className="p-2 rounded-xl hover:bg-white/[0.05] text-white/40 hover:text-white/70 transition-colors">
+          <ArrowLeft className="w-5 h-5" />
+        </button>
+        <h1 className="text-lg font-semibold text-white">Admin Dashboard</h1>
+      </div>
+
+      <div className="px-4 py-5 max-w-3xl mx-auto space-y-5">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <StatCard icon={Users} label="Users" value={stats.users} color="#FF6B8A" />
+          <StatCard icon={Activity} label="Couples" value={stats.couples} color="#60a5fa" />
+          <StatCard icon={MessageSquare} label="Messages" value={stats.messages} color="#34d399" />
+          <StatCard icon={Bug} label="Feedback" value={stats.feedback} color="#fbbf24" />
         </div>
-        <div className="bg-[var(--card)] border border-[var(--border)] rounded-2xl p-4">
-          <h2 className="text-sm font-bold mb-3">Feedback</h2>
-          <div className="flex gap-2 mb-3">
-            {(["all", "open", "reviewing", "resolved"] as const).map((f) => (
-              <button key={f} onClick={() => setFilter(f)}
-                className={`px-3 py-1 rounded-full text-[10px] font-medium transition ${filter === f ? "bg-[var(--accent)] text-white" : "bg-[var(--muted)] text-[var(--muted-foreground)]"}`}>
-                {f.charAt(0).toUpperCase() + f.slice(1)}
-              </button>
-            ))}
-          </div>
+
+        <div>
+          <h3 className="text-sm font-semibold text-white/60 mb-3">Recent Feedback</h3>
           <div className="space-y-2">
-            {filtered.map((item) => (
-              <div key={item.id} className="p-3 rounded-xl bg-[var(--background)] border border-[var(--border)]">
-                <div className="flex items-start justify-between">
-                  <div>
-                    <p className="text-xs font-semibold">{item.title}</p>
-                    <p className="text-[10px] text-[var(--muted-foreground)] mt-0.5">{item.description}</p>
-                    <span className="inline-block mt-1 text-[10px] px-1.5 py-0.5 rounded-full bg-[var(--muted)] text-[var(--muted-foreground)]">{item.category}</span>
+            {feedbackItems.map((fb) => (
+              <motion.div
+                key={fb.id}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                className="rounded-2xl p-4 bg-white/[0.02] border border-white/[0.06]"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className={`text-[10px] px-2 py-0.5 rounded-full border ${
+                        fb.category === "bug" ? "bg-red-500/10 text-red-400 border-red-500/20"
+                        : fb.category === "feature" ? "bg-[#fbbf24]/10 text-[#fbbf24] border-[#fbbf24]/20"
+                        : "bg-[#a78bfa]/10 text-[#a78bfa] border-[#a78bfa]/20"
+                      }`}>
+                        {fb.category}
+                      </span>
+                      <span className="text-[10px] text-white/20">{fb.profiles?.display_name || "Anonymous"}</span>
+                    </div>
+                    <p className="text-sm text-white font-medium">{fb.title}</p>
+                    <p className="text-xs text-white/30 mt-1">{fb.description}</p>
                   </div>
-                  <div className="flex gap-1">
-                    {item.status !== "reviewing" && (
-                      <button onClick={() => updateStatus(item.id, "reviewing")} className="p-1 rounded-full hover:bg-yellow-500/10 transition"><Clock className="w-3 h-3 text-yellow-500" /></button>
-                    )}
-                    {item.status !== "resolved" && (
-                      <button onClick={() => updateStatus(item.id, "resolved")} className="p-1 rounded-full hover:bg-green-500/10 transition"><CheckCircle className="w-3 h-3 text-green-500" /></button>
-                    )}
-                  </div>
+                  <select
+                    value={fb.status}
+                    onChange={(e) => updateFeedbackStatus(fb.id, e.target.value)}
+                    className="text-xs bg-white/[0.03] border border-white/10 text-white/50 rounded-lg px-2 py-1 focus:outline-none focus:border-[#FF6B8A]/30"
+                  >
+                    <option value="open">Open</option>
+                    <option value="reviewing">Reviewing</option>
+                    <option value="resolved">Resolved</option>
+                  </select>
                 </div>
-              </div>
+              </motion.div>
             ))}
           </div>
         </div>
@@ -101,12 +111,12 @@ function AdminDashboard() {
   );
 }
 
-function StatCard({ icon: Icon, label, value }: { icon: typeof Users; label: string; value: number }) {
+function StatCard({ icon: Icon, label, value, color }: { icon: any; label: string; value: number; color: string }) {
   return (
-    <div className="bg-[var(--card)] border border-[var(--border)] rounded-2xl p-4 text-center">
-      <Icon className="w-5 h-5 text-[var(--accent)] mx-auto mb-1" />
-      <p className="text-lg font-bold">{value}</p>
-      <p className="text-[10px] text-[var(--muted-foreground)]">{label}</p>
+    <div className="rounded-2xl p-4 bg-white/[0.02] border border-white/[0.06] text-center">
+      <Icon className="w-5 h-5 mx-auto mb-2" style={{ color }} />
+      <p className="text-2xl font-bold text-white">{value}</p>
+      <p className="text-[10px] text-white/30">{label}</p>
     </div>
   );
 }

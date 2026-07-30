@@ -1,42 +1,67 @@
 "use client";
 
-import { Heart, X, Check, Edit3 } from "lucide-react";
+import { motion } from "framer-motion";
+import { Heart, Send, X, Sparkles } from "lucide-react";
+import type { SyneResponse } from "@/lib/syne";
 
 interface EmpathyGuardProps {
   original: string;
-  suggestion: string;
-  explanation: string;
-  onUseSuggestion: () => void;
+  empathyCheck: SyneResponse;
+  onSendSuggestion: () => void;
   onSendOriginal: () => void;
   onDismiss: () => void;
 }
 
-export default function EmpathyGuard({ original, suggestion, explanation, onUseSuggestion, onSendOriginal, onDismiss }: EmpathyGuardProps) {
+export default function EmpathyGuard({
+  original,
+  empathyCheck,
+  onSendSuggestion,
+  onSendOriginal,
+  onDismiss,
+}: EmpathyGuardProps) {
   return (
-    <div className="fixed bottom-24 left-4 right-4 z-50 bg-[var(--card)] border border-[var(--accent)]/30 rounded-2xl shadow-2xl p-4 max-w-md mx-auto">
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: 20 }}
+      className="mx-4 mb-3 p-4 rounded-2xl bg-gradient-to-br from-[#FF6B8A]/10 to-[#a78bfa]/5 border border-[#FF6B8A]/20 backdrop-blur-xl"
+    >
       <div className="flex items-start gap-3">
-        <div className="w-8 h-8 rounded-full bg-[var(--accent)]/10 flex items-center justify-center shrink-0">
-          <Heart className="w-4 h-4 text-[var(--accent)]" />
+        <div className="w-8 h-8 rounded-full bg-[#FF6B8A]/20 flex items-center justify-center shrink-0 mt-0.5">
+          <Sparkles className="w-4 h-4 text-[#FF6B8A]" />
         </div>
         <div className="flex-1 min-w-0">
-          <p className="text-xs font-semibold mb-1">Syne suggests a gentler way</p>
-          <p className="text-[11px] text-[var(--muted-foreground)] mb-2">{explanation}</p>
-          <div className="p-2 rounded-lg bg-[var(--muted)] text-xs mb-3">{suggestion}</div>
+          <p className="text-sm font-medium text-white mb-1">Syne suggests a gentler way</p>
+          <p className="text-sm text-white/60 mb-3 leading-relaxed">
+            {empathyCheck.suggestion || empathyCheck.content}
+          </p>
+          {empathyCheck.explanation && (
+            <p className="text-xs text-white/30 mb-3 italic">{empathyCheck.explanation}</p>
+          )}
           <div className="flex gap-2">
-            <button onClick={onUseSuggestion}
-              className="flex-1 py-2 rounded-xl bg-[var(--accent)] text-white text-xs font-medium hover:opacity-90 transition flex items-center justify-center gap-1">
-              <Check className="w-3 h-3" /> Use Suggestion
+            <button
+              onClick={onSendSuggestion}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium text-white btn-glow"
+              style={{ background: "linear-gradient(135deg, #FF6B8A, #e94560)" }}
+            >
+              <Send className="w-3.5 h-3.5" />
+              Send Suggestion
             </button>
-            <button onClick={onSendOriginal}
-              className="flex-1 py-2 rounded-xl border border-[var(--border)] text-xs font-medium hover:bg-[var(--muted)] transition flex items-center justify-center gap-1">
-              <Edit3 className="w-3 h-3" /> Send Original
+            <button
+              onClick={onSendOriginal}
+              className="px-4 py-2 rounded-xl text-sm text-white/50 hover:text-white/80 hover:bg-white/[0.05] transition-colors"
+            >
+              Send Original
+            </button>
+            <button
+              onClick={onDismiss}
+              className="p-2 rounded-xl text-white/30 hover:text-white/60 hover:bg-white/[0.05] transition-colors ml-auto"
+            >
+              <X className="w-4 h-4" />
             </button>
           </div>
         </div>
-        <button onClick={onDismiss} className="p-1 rounded-full hover:bg-[var(--muted)] transition">
-          <X className="w-4 h-4 text-[var(--muted-foreground)]" />
-        </button>
       </div>
-    </div>
+    </motion.div>
   );
 }

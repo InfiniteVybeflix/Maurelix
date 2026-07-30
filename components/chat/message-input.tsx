@@ -1,11 +1,12 @@
 "use client";
 
 import { useState, useRef } from "react";
-import { Send, Paperclip, X, Smile } from "lucide-react";
-import { Message } from "@/types";
+import { motion, AnimatePresence } from "framer-motion";
+import { Send, Paperclip, X, Mic, Image as ImageIcon } from "lucide-react";
+import type { Message } from "@/types";
 
 interface MessageInputProps {
-  onSend: (text: string, attachmentId?: string) => void;
+  onSend: (text: string, attachmentId?: string) => Promise<void>;
   onAttachment: (file: File) => Promise<string | null>;
   replyTo: Message | null;
   onCancelReply: () => void;
@@ -14,7 +15,15 @@ interface MessageInputProps {
   disabled?: boolean;
 }
 
-export default function MessageInput({ onSend, onAttachment, replyTo, onCancelReply, editingMessage, onCancelEdit, disabled }: MessageInputProps) {
+export default function MessageInput({
+  onSend,
+  onAttachment,
+  replyTo,
+  onCancelReply,
+  editingMessage,
+  onCancelEdit,
+  disabled,
+}: MessageInputProps) {
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -28,7 +37,10 @@ export default function MessageInput({ onSend, onAttachment, replyTo, onCancelRe
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); }
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleSend();
+    }
   };
 
   const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -42,34 +54,66 @@ export default function MessageInput({ onSend, onAttachment, replyTo, onCancelRe
   };
 
   return (
-    <div className="border-t border-[var(--border)] bg-[var(--background)] px-4 py-3">
-      {(replyTo || editingMessage) && (
-        <div className="flex items-center justify-between mb-2 px-3 py-2 rounded-lg bg-[var(--muted)] text-xs">
-          <span className="text-[var(--muted-foreground)] truncate">
-            {editingMessage ? "Editing message" : `Replying to: ${(replyTo?.decrypted_content || replyTo?.content_encrypted || "").slice(0, 40)}...`}
-          </span>
-          <button onClick={editingMessage ? onCancelEdit : onCancelReply} className="p-1 hover:bg-[var(--border)] rounded-full transition">
-            <X className="w-3 h-3" />
-          </button>
-        </div>
-      )}
-      <div className="flex items-end gap-2">
-        <button onClick={() => fileInputRef.current?.click()} className="p-2 rounded-full hover:bg-[var(--muted)] transition shrink-0">
-          <Paperclip className="w-5 h-5 text-[var(--muted-foreground)]" />
-        </button>
-        <input ref={fileInputRef} type="file" className="hidden" onChange={handleFile} accept="image/*,audio/*,video/*" />
+    <div className="relative">
+      <AnimatePresence>
+        {(replyTo || editingMessage) && (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 10 }}
+            className="mx-4 mb-2 px-4 py-2.5 rounded-xl bg-white/[0.03] border border-white/[0.08] flex items-center justify-between"
+          >
+            <div className="flex items-center gap-2 min-w-0">
+              <div className="w-1 h-8 rounded-full bg-[#FF6B8A]" />
+              <div className="min-w-0">
+                <p className="text-[10px] text-[#FF6B8A] font-medium">
+                  {editingMessage ? "Editing message" : "Replying to"}
+                </p>
+                <p className="text-xs text-white/40 truncate">
+                  {(editingMessage?.decrypted_content || replyTo?.decrypted_content || replyTo?.content_encrypted || "").slice(0, 50)}...
+                </p>
+              </div>
+            </div>
+            <button onClick={editingMessage ? onCancelEdit : onCancelReply} className="p-1.5 rounded-lg hover:bg-white/[0.05] text-white/30 hover:text-white transition-colors shrink-0">
+              <X className="w-4 h-4" />
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <div className="flex items-end gap-2 px-4 pb-4 pt-2">
         <div className="flex-1 relative">
-          <textarea value={text} onChange={(e) => setText(e.target.value)} onKeyDown={handleKeyDown}
-            placeholder={disabled ? "Chat is locked..." : "Type a message..."}
+          <textarea
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder={disabled ? "Cool-down active..." : "Type a message..."}
             disabled={disabled || sending}
             rows={1}
-            className="w-full px-4 py-2.5 pr-10 rounded-2xl bg-[var(--card)] border border-[var(--border)] text-sm resize-none focus:outline-none focus:ring-2 focus:ring-[var(--accent)] max-h-32 scrollbar-hide"
-            style={{ height: "auto", minHeight: "40px" }}
+            className="w-full px-4 py-3 pr-12 rounded-2xl bg-white/[0.03] border border-white/10 text-white text-sm placeholder:text-white/20 focus:outline-none focus:border-[#FF6B8A]/30 focus:ring-1 focus:ring-[#FF6B8A]/10 resize-none transition-all scrollbar-hide"
+            style={{ minHeight: "48px", maxHeight: "120px" }}
           />
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={disabled || sending}
+            className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 rounded-lg text-white/20 hover:text-white/50 hover:bg-white/[0.05] transition-colors"
+          >
+            <Paperclip className="w-4 h-4" />
+          </button>
+          <input ref={fileInputRef} type="file" accept="image/*,audio/*,video/*" className="hidden" onChange={handleFile} />
         </div>
-        <button onClick={handleSend} disabled={!text.trim() || sending || disabled}
-          className="p-2.5 rounded-full bg-[var(--accent)] text-white hover:opacity-90 transition disabled:opacity-50 shrink-0">
-          <Send className="w-4 h-4" />
+
+        <button
+          onClick={handleSend}
+          disabled={!text.trim() || disabled || sending}
+          className="w-12 h-12 rounded-2xl flex items-center justify-center btn-glow shrink-0 disabled:opacity-30 disabled:hover:transform-none"
+          style={{ background: "linear-gradient(135deg, #FF6B8A, #e94560)" }}
+        >
+          {sending ? (
+            <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+          ) : (
+            <Send className="w-5 h-5 text-white" />
+          )}
         </button>
       </div>
     </div>

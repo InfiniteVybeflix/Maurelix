@@ -1,40 +1,69 @@
 "use client";
 
 import { useState } from "react";
-import { Flame, AlertTriangle } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+import { Wind, Timer, X } from "lucide-react";
 
 interface CooldownTriggerProps {
-  active: boolean;
   onActivate: () => void;
+  active: boolean;
+  remainingMinutes: number;
 }
 
-export default function CooldownTrigger({ active, onActivate }: CooldownTriggerProps) {
+export default function CooldownTrigger({ onActivate, active, remainingMinutes }: CooldownTriggerProps) {
   const [showConfirm, setShowConfirm] = useState(false);
 
-  if (active) return null;
+  if (active) {
+    return (
+      <motion.div
+        initial={{ opacity: 0, scale: 0.9 }}
+        animate={{ opacity: 1, scale: 1 }}
+        className="flex items-center gap-2 px-4 py-2 rounded-xl bg-[#FF6B8A]/10 border border-[#FF6B8A]/20"
+      >
+        <Wind className="w-4 h-4 text-[#FF6B8A] animate-pulse" />
+        <span className="text-sm text-[#FF6B8A]">{remainingMinutes}m cool-down</span>
+      </motion.div>
+    );
+  }
 
   return (
-    <>
-      <button onClick={() => setShowConfirm(true)} className="p-2 rounded-full hover:bg-orange-500/10 transition">
-        <Flame className="w-5 h-5 text-orange-500" />
+    <div className="relative">
+      <button
+        onClick={() => setShowConfirm(!showConfirm)}
+        className="p-2.5 rounded-xl hover:bg-white/[0.05] text-white/30 hover:text-white/60 transition-colors"
+        title="Activate cool-down mode"
+      >
+        <Wind className="w-5 h-5" />
       </button>
-      {showConfirm && (
-        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
-          <div className="bg-[var(--card)] rounded-2xl p-6 max-w-sm w-full">
-            <div className="flex items-center gap-2 mb-3">
-              <AlertTriangle className="w-5 h-5 text-orange-500" />
-              <h3 className="text-sm font-bold">Activate Cool-Down Mode?</h3>
+
+      <AnimatePresence>
+        {showConfirm && (
+          <motion.div
+            initial={{ opacity: 0, y: 8, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 8, scale: 0.95 }}
+            className="absolute right-0 bottom-12 w-64 p-4 rounded-2xl glass shadow-2xl border border-white/10 z-50"
+          >
+            <div className="flex items-start justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <Timer className="w-4 h-4 text-[#FF6B8A]" />
+                <span className="text-sm font-medium text-white">Cool-down Mode</span>
+              </div>
+              <button onClick={() => setShowConfirm(false)} className="p-1 rounded-lg hover:bg-white/[0.05] text-white/30">
+                <X className="w-3.5 h-3.5" />
+              </button>
             </div>
-            <p className="text-xs text-[var(--muted-foreground)] mb-4">This will lock the chat for both partners for 20 minutes and show a breathing exercise.</p>
-            <div className="flex gap-2">
-              <button onClick={() => { onActivate(); setShowConfirm(false); }}
-                className="flex-1 py-2.5 rounded-xl bg-orange-500 text-white text-xs font-medium hover:bg-orange-600 transition">Activate</button>
-              <button onClick={() => setShowConfirm(false)}
-                className="flex-1 py-2.5 rounded-xl border border-[var(--border)] text-xs font-medium hover:bg-[var(--muted)] transition">Cancel</button>
-            </div>
-          </div>
-        </div>
-      )}
-    </>
+            <p className="text-xs text-white/40 mb-4">Lock chat for 20 minutes to cool off. Both partners will be notified.</p>
+            <button
+              onClick={() => { onActivate(); setShowConfirm(false); }}
+              className="w-full py-2.5 rounded-xl text-white text-sm font-medium btn-glow"
+              style={{ background: "linear-gradient(135deg, #FF6B8A, #e94560)" }}
+            >
+              Activate 20min Lock
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
   );
 }

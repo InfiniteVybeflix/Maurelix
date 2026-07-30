@@ -1,62 +1,123 @@
 "use client";
 
 import { useState } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import { X, Bug, Lightbulb, AlertTriangle, Send } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
-import { X, Send, Bug, Lightbulb, ShieldAlert } from "lucide-react";
 
 interface FeedbackModalProps {
   onClose: () => void;
 }
 
+const CATEGORIES = [
+  { key: "bug", label: "Bug Report", icon: Bug, color: "#ef4444" },
+  { key: "feature", label: "Feature Request", icon: Lightbulb, color: "#fbbf24" },
+  { key: "spam", label: "Other", icon: AlertTriangle, color: "#a78bfa" },
+];
+
 export default function FeedbackModal({ onClose }: FeedbackModalProps) {
-  const [category, setCategory] = useState<"bug" | "feature" | "spam">("bug");
+  const [category, setCategory] = useState("bug");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
+  const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const supabase = createClient();
 
-  const submit = async () => {
+  const handleSubmit = async () => {
+    if (!title.trim() || !description.trim()) return;
+    setSubmitting(true);
     const { data: { user } } = await supabase.auth.getUser();
-    if (!user || !title.trim() || !description.trim()) return;
-    await supabase.from("feedback").insert({ user_id: user.id, category, title: title.trim(), description: description.trim() });
+    await supabase.from("feedback").insert({
+      user_id: user?.id,
+      category,
+      title: title.trim(),
+      description: description.trim(),
+    });
+    setSubmitting(false);
     setSubmitted(true);
+    setTimeout(() => onClose(), 2000);
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
-      <div className="bg-[var(--card)] rounded-2xl p-6 max-w-sm w-full">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-sm font-bold">Feedback</h3>
-          <button onClick={onClose} className="p-1 rounded-full hover:bg-[var(--muted)] transition"><X className="w-4 h-4" /></button>
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+    >
+      <motion.div
+        initial={{ scale: 0.95, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        className="w-full max-w-md rounded-2xl glass shadow-2xl border border-white/10 overflow-hidden"
+      >
+        <div className="px-5 py-4 border-b border-white/[0.06] flex items-center justify-between">
+          <h3 className="text-lg font-semibold text-white">Feedback</h3>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-white/[0.05] text-white/30 hover:text-white/60 transition-colors">
+            <X className="w-4 h-4" />
+          </button>
         </div>
-        {submitted ? (
-          <div className="text-center py-6">
-            <Send className="w-8 h-8 text-[var(--accent)] mx-auto mb-2" />
-            <p className="text-sm font-medium">Thank you!</p>
-            <p className="text-xs text-[var(--muted-foreground)]">Your feedback has been submitted.</p>
-          </div>
-        ) : (
-          <div className="space-y-3">
-            <div className="flex gap-2">
-              {(["bug", "feature", "spam"] as const).map((c) => (
-                <button key={c} onClick={() => setCategory(c)}
-                  className={`flex-1 py-2 rounded-xl text-xs font-medium transition flex items-center justify-center gap-1 ${
-                    category === c ? "bg-[var(--accent)] text-white" : "bg-[var(--muted)] text-[var(--muted-foreground)]"
-                  }`}>
-                  {c === "bug" ? <Bug className="w-3 h-3" /> : c === "feature" ? <Lightbulb className="w-3 h-3" /> : <ShieldAlert className="w-3 h-3" />}
-                  {c.charAt(0).toUpperCase() + c.slice(1)}
-                </button>
-              ))}
+
+        <div className="px-5 py-5 space-y-4">
+          {submitted ? (
+            <div className="text-center py-8">
+              <div className="w-12 h-12 rounded-full bg-emerald-500/20 flex items-center justify-center mx-auto mb-3">
+                <Send className="w-5 h-5 text-emerald-400" />
+              </div>
+              <p className="text-white/60">Thank you for your feedback!</p>
             </div>
-            <input placeholder="Title" value={title} onChange={(e) => setTitle(e.target.value)}
-              className="w-full px-4 py-3 rounded-xl bg-[var(--background)] border border-[var(--border)] text-sm focus:outline-none focus:ring-2 focus:ring-[var(--accent)]" />
-            <textarea placeholder="Describe your feedback..." value={description} onChange={(e) => setDescription(e.target.value)} rows={3}
-              className="w-full px-4 py-3 rounded-xl bg-[var(--background)] border border-[var(--border)] text-sm resize-none focus:outline-none focus:ring-2 focus:ring-[var(--accent)]" />
-            <button onClick={submit} disabled={!title.trim() || !description.trim()}
-              className="w-full py-2.5 rounded-xl bg-[var(--accent)] text-white text-sm font-medium hover:opacity-90 transition disabled:opacity-50">Submit</button>
-          </div>
-        )}
-      </div>
-    </div>
+          ) : (
+            <>
+              <div className="flex gap-2">
+                {CATEGORIES.map((c) => (
+                  <button
+                    key={c.key}
+                    onClick={() => setCategory(c.key)}
+                    className={`flex-1 flex flex-col items-center gap-1.5 px-3 py-3 rounded-xl border transition-all ${
+                      category === c.key
+                        ? "border-white/20 bg-white/[0.05]"
+                        : "border-white/[0.06] bg-white/[0.02] hover:border-white/10"
+                    }`}
+                  >
+                    <c.icon className="w-4 h-4" style={{ color: c.color }} />
+                    <span className="text-[10px] text-white/50">{c.label}</span>
+                  </button>
+                ))}
+              </div>
+
+              <input
+                type="text"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder="Short title"
+                className="w-full px-4 py-3 rounded-xl bg-white/[0.03] border border-white/10 text-white text-sm placeholder:text-white/20 focus:outline-none focus:border-[#FF6B8A]/30"
+              />
+
+              <textarea
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder="Describe in detail..."
+                rows={4}
+                className="w-full px-4 py-3 rounded-xl bg-white/[0.03] border border-white/10 text-white text-sm placeholder:text-white/20 focus:outline-none focus:border-[#FF6B8A]/30 resize-none"
+              />
+
+              <button
+                onClick={handleSubmit}
+                disabled={!title.trim() || !description.trim() || submitting}
+                className="w-full py-3 rounded-xl text-white font-medium text-sm btn-glow flex items-center justify-center gap-2 disabled:opacity-30"
+                style={{ background: "linear-gradient(135deg, #FF6B8A, #e94560)" }}
+              >
+                {submitting ? (
+                  <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                ) : (
+                  <>
+                    <Send className="w-4 h-4" /> Submit Feedback
+                  </>
+                )}
+              </button>
+            </>
+          )}
+        </div>
+      </motion.div>
+    </motion.div>
   );
 }

@@ -1,66 +1,106 @@
 "use client";
 
-import { useRef } from "react";
-import { Message, Quest, GratitudeItem, MemoryPin } from "@/types";
-import { Heart, MessageCircle, MapPin, Star, Sparkles } from "lucide-react";
+import { useRef, useState, useEffect } from "react";
+import { motion } from "framer-motion";
+import { X, Download, Heart, MessageCircle, MapPin, Gamepad2 } from "lucide-react";
+import html2canvas from "html2canvas";
 
 interface WrappedViewProps {
-  messages: Message[];
-  quests: Quest[];
-  gratitude: GratitudeItem[];
-  pins: MemoryPin[];
   onClose: () => void;
+  stats: {
+    messagesSent: number;
+    daysTogether: number;
+    memoriesCreated: number;
+    gamesPlayed: number;
+    topLoveLanguage: string;
+  };
 }
 
-export default function WrappedView({ messages, quests, gratitude, pins, onClose }: WrappedViewProps) {
-  const ref = useRef<HTMLDivElement>(null);
+export default function WrappedView({ onClose, stats }: WrappedViewProps) {
+  const cardRef = useRef<HTMLDivElement>(null);
+  const [downloading, setDownloading] = useState(false);
 
   const download = async () => {
-    if (!ref.current) return;
-    const html2canvas = (await import("html2canvas")).default;
-    const canvas = await html2canvas(ref.current, { backgroundColor: "#1a1a2e" });
+    if (!cardRef.current) return;
+    setDownloading(true);
+    const canvas = await html2canvas(cardRef.current, { backgroundColor: "#0a0a1a", scale: 2 });
     const link = document.createElement("a");
     link.download = "maurelix-wrapped.png";
     link.href = canvas.toDataURL();
     link.click();
+    setDownloading(false);
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
-      <div className="bg-[var(--card)] rounded-2xl p-6 max-w-md w-full max-h-[90vh] overflow-y-auto">
-        <div ref={ref} className="bg-[#1a1a2e] rounded-xl p-6 text-white space-y-4">
-          <div className="text-center">
-            <Heart className="w-10 h-10 text-[#FF6B8A] fill-[#FF6B8A] mx-auto mb-2" />
-            <h2 className="text-xl font-bold">Our Year Together</h2>
-            <p className="text-xs text-white/60">Maurelix Wrapped</p>
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
+    >
+      <motion.div
+        initial={{ scale: 0.9, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        className="relative w-full max-w-sm"
+      >
+        <button
+          onClick={onClose}
+          className="absolute -top-3 -right-3 w-8 h-8 rounded-full bg-white/[0.08] border border-white/10 flex items-center justify-center text-white/40 hover:text-white/80 hover:bg-white/[0.12] transition-colors z-10"
+        >
+          <X className="w-4 h-4" />
+        </button>
+
+        <div ref={cardRef} className="rounded-3xl overflow-hidden" style={{ background: "linear-gradient(180deg, #1a1a3e 0%, #0a0a1a 100%)" }}>
+          <div className="px-6 pt-8 pb-6 text-center">
+            <div className="w-16 h-16 rounded-full bg-gradient-to-br from-[#FF6B8A] to-[#e94560] flex items-center justify-center mx-auto mb-4 shadow-lg shadow-[#FF6B8A]/20">
+              <Heart className="w-8 h-8 text-white" />
+            </div>
+            <h2 className="text-2xl font-bold text-white">Our Year Together</h2>
+            <p className="text-white/40 text-sm mt-1">Maurelix Wrapped</p>
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="bg-white/10 rounded-xl p-3 text-center">
-              <MessageCircle className="w-5 h-5 mx-auto mb-1 text-[#FF6B8A]" />
-              <p className="text-lg font-bold">{messages.length}</p>
-              <p className="text-[10px] text-white/60">Messages</p>
+
+          <div className="px-6 pb-6 space-y-3">
+            <StatRow icon={MessageCircle} label="Messages Sent" value={stats.messagesSent.toLocaleString()} color="#FF6B8A" />
+            <StatRow icon={Heart} label="Days Together" value={stats.daysTogether.toString()} color="#e94560" />
+            <StatRow icon={MapPin} label="Memories Created" value={stats.memoriesCreated.toString()} color="#60a5fa" />
+            <StatRow icon={Gamepad2} label="Games Played" value={stats.gamesPlayed.toString()} color="#fbbf24" />
+            <div className="mt-4 p-3 rounded-xl bg-white/[0.03] border border-white/[0.06]">
+              <p className="text-[10px] text-white/30 uppercase tracking-wider mb-1">Top Love Language</p>
+              <p className="text-sm font-medium text-white">{stats.topLoveLanguage}</p>
             </div>
-            <div className="bg-white/10 rounded-xl p-3 text-center">
-              <Star className="w-5 h-5 mx-auto mb-1 text-yellow-400" />
-              <p className="text-lg font-bold">{quests.filter((q) => q.status === "completed").length}</p>
-              <p className="text-[10px] text-white/60">Quests Done</p>
-            </div>
-            <div className="bg-white/10 rounded-xl p-3 text-center">
-              <MapPin className="w-5 h-5 mx-auto mb-1 text-green-400" />
-              <p className="text-lg font-bold">{pins.filter((p) => p.unlocked_at).length}</p>
-              <p className="text-[10px] text-white/60">Memories</p>
-            </div>
-            <div className="bg-white/10 rounded-xl p-3 text-center">
-              <Sparkles className="w-5 h-5 mx-auto mb-1 text-purple-400" />
-              <p className="text-lg font-bold">{gratitude.length}</p>
-              <p className="text-[10px] text-white/60">Gratitude Notes</p>
-            </div>
+          </div>
+
+          <div className="px-6 pb-8">
+            <button
+              onClick={download}
+              disabled={downloading}
+              className="w-full py-3 rounded-2xl text-white font-medium text-sm btn-glow flex items-center justify-center gap-2 disabled:opacity-50"
+              style={{ background: "linear-gradient(135deg, #FF6B8A, #e94560)" }}
+            >
+              {downloading ? (
+                <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+              ) : (
+                <>
+                  <Download className="w-4 h-4" /> Save Image
+                </>
+              )}
+            </button>
           </div>
         </div>
-        <div className="flex gap-2 mt-4">
-          <button onClick={download} className="flex-1 py-2.5 rounded-xl bg-[var(--accent)] text-white text-sm font-medium hover:opacity-90 transition">Download Image</button>
-          <button onClick={onClose} className="flex-1 py-2.5 rounded-xl border border-[var(--border)] text-sm font-medium hover:bg-[var(--muted)] transition">Close</button>
-        </div>
+      </motion.div>
+    </motion.div>
+  );
+}
+
+function StatRow({ icon: Icon, label, value, color }: { icon: any; label: string; value: string; color: string }) {
+  return (
+    <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-white/[0.03] border border-white/[0.06]">
+      <div className="w-9 h-9 rounded-lg flex items-center justify-center" style={{ background: `${color}15` }}>
+        <Icon className="w-4 h-4" style={{ color }} />
+      </div>
+      <div className="flex-1">
+        <p className="text-xs text-white/30">{label}</p>
+        <p className="text-lg font-bold text-white">{value}</p>
       </div>
     </div>
   );

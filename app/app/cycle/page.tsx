@@ -2,101 +2,152 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { motion, AnimatePresence } from "framer-motion";
+import { ArrowLeft, Plus, Droplets, Thermometer, Brain } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
-import { calculatePredictions } from "@/lib/cycle";
+import { calculatePredictions, savePrediction } from "@/lib/cycle";
 import CycleCalendar from "@/components/cycle/cycle-calendar";
 import LogForm from "@/components/cycle/log-form";
-import { CycleLog, CyclePrediction, Profile } from "@/types";
-import { Plus, ArrowLeft, Sparkles, Droplets } from "lucide-react";
+import type { CycleLog, CyclePrediction } from "@/types";
 
 export default function CyclePage() {
   const router = useRouter();
   const supabase = createClient();
+  const [user, setUser] = useState<any>(null);
   const [logs, setLogs] = useState<CycleLog[]>([]);
   const [prediction, setPrediction] = useState<CyclePrediction | null>(null);
-  const [currentMonth, setCurrentMonth] = useState(new Date());
-  const [showForm, setShowForm] = useState(false);
-  const [user, setUser] = useState<Profile | null>(null);
-  const [partner, setPartner] = useState<Profile | null>(null);
+  const [showLogForm, setShowLogForm] = useState(false);
+  const [selectedDate, setSelectedDate] = useState<Date>(new Date());
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    supabase.auth.getUser().then(({ data: { user: authUser } }) => {
-      if (!authUser) { router.push("/"); return; }
-      supabase.from("profiles").select("*").eq("id", authUser.id).single().then(({ data }) => {
-        if (data) setUser(data);
-      });
-      supabase.from("cycle_logs").select("*").eq("user_id", authUser.id).order("start_date", { ascending: false }).then(({ data }) => {
-        if (data) {
-          setLogs(data);
-          const pred = calculatePredictions(data);
-          if (pred) {
-            pred.user_id = authUser.id;
-            setPrediction(pred);
-            supabase.from("cycle_predictions").upsert({ ...pred }).then(() => {});
-          }
-        }
-      });
+    supabase.auth.getUser().then(({ data: { user: u } }) => {
+      if (!u) { router.push("/login"); return; }
+      setUser(u);
+      loadData(u.id);
     });
   }, [router, supabase]);
 
-  const handleAddLog = async (log: Partial<CycleLog>) => {
-    const { data: { user: authUser } } = await supabase.auth.getUser();
-    if (!authUser) return;
-    const { data } = await supabase.from("cycle_logs").insert({ ...log, user_id: authUser.id }).select().single();
-    if (data) {
-      const updated = [data, ...logs];
-      setLogs(updated);
-      const pred = calculatePredictions(updated);
-      if (pred) {
-        pred.user_id = authUser.id;
-        setPrediction(pred);
-        await supabase.from("cycle_predictions").upsert({ ...pred });
+  const loadData = async (userId: string) => {
+    setLoading(true);
+    const { data: logsData } = await supabase.from("cycle_logs").select("*").eq("user_id", userId).order("start_date", { ascending: false });
+    setLogs(logsData || []);
+
+    const { data: predData } = await supabase.from("cycle_predictions").select("*").eq("user_id", userId).single();
+    if (predData) {
+      setPrediction(predData as CyclePrediction);
+    } else if (logsData && logsData.length >= 2) {
+      const calc = calculatePredictions(logsData);
+      if (calc) {
+        await savePrediction(userId, calc);
+        setPrediction(calc);
       }
-      setShowForm(false);
     }
+    setLoading(false);
   };
 
+  const refresh = () => {
+    if (user) loadData(user.id);
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center" style={{ background: "linear-gradient(180deg, #050510 0%, #0a0a1a 100%)" }}>
+        <div className="w-8 h-8 border-2 border-[#FF6B8A]/30 border-t-[#FF6B8A] rounded-full animate-spin" />
+      </div>
+    );
+  }
+
   return (
-    <div className="min-h-screen bg-[var(--background)]">
-      <header className="px-4 py-3 border-b border-[var(--border)] flex items-center gap-3">
-        <button onClick={() => router.push("/app/chat")} className="p-2 rounded-full hover:bg-[var(--muted)] transition"><ArrowLeft className="w-5 h-5" /></button>
-        <h1 className="text-lg font-bold">Cycle Tracker</h1>
-      </header>
-      <div className="p-4 space-y-4 max-w-lg mx-auto">
+    <div className="min-h-screen pb-8" style={{ background: "linear-gradient(180deg, #050510 0%, #0a0a1a 100%)" }}>
+      {/* Header */}
+      <div className="flex items-center gap-3 px-4 py-3 border-b border-white/[0.06]">
+        <button onClick={() => router.push("/app/chat")} className="p-2 rounded-xl hover:bg-white/[0.05] text-white/40 hover:text-white/70 transition-colors">
+          <ArrowLeft className="w-5 h-5" />
+        </button>
+        <div>
+          <h1 className="text-lg font-semibold text-white">Cycle Tracking</h1>
+          <p className="text-[10px] text-white/30">{logs.length} logs recorded</p>
+        </div>
+        <button onClick={() => setShowLogForm(true)} className="ml-auto p-2.5 rounded-xl bg-[#FF6B8A]/15 text-[#FF6B8A] hover:bg-[#FF6B8A]/25 transition-colors">
+          <Plus className="w-5 h-5" />
+        </button>
+      </div>
+
+      <div className="px-4 py-5 space-y-5 max-w-lg mx-auto">
+        {/* Prediction Card */}
         {prediction && (
-          <div className="bg-[var(--card)] border border-[var(--border)] rounded-2xl p-4">
-            <div className="flex items-center gap-2 mb-2">
-              <Sparkles className="w-4 h-4 text-[var(--accent)]" />
-              <h3 className="text-sm font-semibold">Next Prediction</h3>
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="rounded-2xl glass border border-white/10 p-5"
+          >
+            <div className="flex items-center gap-2 mb-4">
+              <Brain className="w-4 h-4 text-[#FF6B8A]" />
+              <h3 className="text-sm font-semibold text-white">AI Prediction</h3>
+              <span className="ml-auto text-[10px] px-2 py-0.5 rounded-full bg-[#FF6B8A]/10 text-[#FF6B8A] border border-[#FF6B8A]/20">
+                {prediction.confidence}% confidence
+              </span>
             </div>
-            <p className="text-xs text-[var(--muted-foreground)] mb-1">Predicted start: <span className="font-medium text-[var(--foreground)]">{prediction.predicted_start}</span></p>
-            <p className="text-xs text-[var(--muted-foreground)] mb-1">Confidence: <span className="font-medium text-[var(--foreground)]">{prediction.confidence}%</span></p>
-            {prediction.ai_note && <p className="text-[10px] text-orange-500 mt-2">{prediction.ai_note}</p>}
+            <div className="grid grid-cols-2 gap-3">
+              <StatCard icon={Droplets} label="Next Period" value={prediction.predicted_start || "—"} color="#FF6B8A" />
+              <StatCard icon={Thermometer} label="Fertile Window" value={`${prediction.fertility_window_start || "—"} - ${prediction.fertility_window_end || ""}`} color="#60a5fa" />
+            </div>
+            {prediction.ai_note && (
+              <p className="mt-3 text-xs text-white/30 italic">{prediction.ai_note}</p>
+            )}
+          </motion.div>
+        )}
+
+        {/* Calendar */}
+        <CycleCalendar logs={logs} predictions={prediction} onSelectDate={(d) => { setSelectedDate(d); setShowLogForm(true); }} />
+
+        {/* Recent Logs */}
+        {logs.length > 0 && (
+          <div className="space-y-2">
+            <h3 className="text-sm font-semibold text-white/60">Recent Logs</h3>
+            {logs.slice(0, 5).map((log) => (
+              <motion.div
+                key={log.id}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                className="flex items-center gap-3 px-4 py-3 rounded-xl bg-white/[0.02] border border-white/[0.06]"
+              >
+                <div className="w-8 h-8 rounded-lg bg-[#FF6B8A]/10 flex items-center justify-center">
+                  <Droplets className="w-4 h-4 text-[#FF6B8A]" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm text-white">{log.start_date} {log.end_date ? `— ${log.end_date}` : ""}</p>
+                  <p className="text-xs text-white/30">Flow: {log.flow_level}/5</p>
+                </div>
+                <div className="flex gap-1">
+                  {Object.keys(log.symptoms || {}).slice(0, 3).map((s) => (
+                    <span key={s} className="text-[10px] px-1.5 py-0.5 rounded-full bg-white/[0.03] text-white/30 border border-white/[0.06]">{s}</span>
+                  ))}
+                </div>
+              </motion.div>
+            ))}
           </div>
         )}
-        <CycleCalendar logs={logs} prediction={prediction} currentMonth={currentMonth} onMonthChange={setCurrentMonth} onSelectDate={() => setShowForm(true)} />
-        {showForm && <LogForm onSubmit={handleAddLog} onCancel={() => setShowForm(false)} />}
-        {!showForm && (
-          <button onClick={() => setShowForm(true)} className="w-full py-3 rounded-xl bg-[var(--accent)] text-white text-sm font-medium hover:opacity-90 transition flex items-center justify-center gap-2">
-            <Plus className="w-4 h-4" /> Log Period
-          </button>
-        )}
-        <div className="space-y-2">
-          <h3 className="text-sm font-semibold">Recent Logs</h3>
-          {logs.slice(0, 5).map((log) => (
-            <div key={log.id} className="flex items-center justify-between p-3 rounded-xl bg-[var(--card)] border border-[var(--border)]">
-              <div className="flex items-center gap-2">
-                <Droplets className="w-4 h-4 text-[var(--accent)]" />
-                <span className="text-xs font-medium">{log.start_date}</span>
-                {log.end_date && <span className="text-[10px] text-[var(--muted-foreground)]">→ {log.end_date}</span>}
-              </div>
-              <div className="flex gap-0.5">
-                {Array.from({ length: log.flow_level || 1 }).map((_, i) => <div key={i} className="w-1.5 h-1.5 rounded-full bg-[var(--accent)]" />)}
-              </div>
-            </div>
-          ))}
-        </div>
       </div>
+
+      <AnimatePresence>
+        {showLogForm && user && (
+          <LogForm userId={user.id} selectedDate={selectedDate} onClose={() => setShowLogForm(false)} onSaved={refresh} />
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+function StatCard({ icon: Icon, label, value, color }: { icon: any; label: string; value: string; color: string }) {
+  return (
+    <div className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.06]">
+      <div className="flex items-center gap-1.5 mb-1">
+        <Icon className="w-3 h-3" style={{ color }} />
+        <span className="text-[10px] text-white/30">{label}</span>
+      </div>
+      <p className="text-xs font-medium text-white truncate">{value}</p>
     </div>
   );
 }

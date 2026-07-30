@@ -1,12 +1,24 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  reactStrictMode: true,
   images: {
     remotePatterns: [
-      { hostname: "*.supabase.co" },
-      { hostname: "tile.openstreetmap.org" },
+      { protocol: "https", hostname: "*.supabase.co" },
     ],
     unoptimized: true,
   },
+  async headers() {
+    return [
+      {
+        source: "/(.*)",
+        headers: [
+          { key: "X-Frame-Options", value: "DENY" },
+          { key: "X-Content-Type-Options", value: "nosniff" },
+          { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+          { key: "Permissions-Policy", value: "camera=self, microphone=self, geolocation=self" },
+        ],
+      },
+    ];
+  },
 };
+
 module.exports = nextConfig;

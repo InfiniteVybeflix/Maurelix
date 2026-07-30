@@ -2,7 +2,11 @@
 
 import { createClient } from "@/lib/supabase/client";
 
-export async function uploadAttachment(file: File, type: "image" | "audio" | "video", coupleId: string): Promise<{ path: string; thumbnailPath?: string } | null> {
+export async function uploadAttachment(
+  file: File,
+  type: "image" | "audio" | "video",
+  coupleId: string
+): Promise<{ path: string; thumbnailPath?: string } | null> {
   const supabase = createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return null;
@@ -10,8 +14,14 @@ export async function uploadAttachment(file: File, type: "image" | "audio" | "vi
   const ext = file.name.split(".").pop() || "bin";
   const path = `${coupleId}/${user.id}/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
 
-  const { error } = await supabase.storage.from("attachments").upload(path, file, { contentType: file.type });
-  if (error) return null;
+  const { error } = await supabase.storage.from("attachments").upload(path, file, {
+    contentType: file.type,
+  });
+
+  if (error) {
+    console.error("uploadAttachment error:", error);
+    return null;
+  }
 
   let thumbnailPath: string | undefined;
   if (type === "image" && file.type.startsWith("image/")) {
@@ -21,7 +31,13 @@ export async function uploadAttachment(file: File, type: "image" | "audio" | "vi
   return { path, thumbnailPath };
 }
 
-async function generateThumbnail(file: File, originalPath: string, coupleId: string, userId: string, supabase: ReturnType<typeof createClient>): Promise<string | undefined> {
+async function generateThumbnail(
+  file: File,
+  originalPath: string,
+  coupleId: string,
+  userId: string,
+  supabase: ReturnType<typeof createClient>
+): Promise<string | undefined> {
   return new Promise((resolve) => {
     const img = new Image();
     img.onload = async () => {
@@ -36,7 +52,9 @@ async function generateThumbnail(file: File, originalPath: string, coupleId: str
       const blob = await new Promise<Blob | null>((r) => canvas.toBlob(r, "image/jpeg", 0.7));
       if (!blob) { resolve(undefined); return; }
       const thumbPath = `${coupleId}/${userId}/thumbs/${Date.now()}_${Math.random().toString(36).slice(2)}.jpg`;
-      const { error } = await supabase.storage.from("attachments").upload(thumbPath, blob, { contentType: "image/jpeg" });
+      const { error } = await supabase.storage.from("attachments").upload(thumbPath, blob, {
+        contentType: "image/jpeg",
+      });
       resolve(error ? undefined : thumbPath);
     };
     img.onerror = () => resolve(undefined);

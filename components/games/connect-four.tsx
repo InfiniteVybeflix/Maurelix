@@ -1,95 +1,109 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { motion } from "framer-motion";
+import { RotateCcw } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
-import { GameSession } from "@/types";
-
-interface ConnectFourProps {
-  session: GameSession;
-  userId: string;
-  onUpdate: (session: GameSession) => void;
-}
 
 const ROWS = 6;
 const COLS = 7;
-type Cell = "R" | "Y" | null;
+
+interface ConnectFourProps {
+  session: { id: string; state: any; current_turn: string | null };
+  userId: string;
+  onUpdate: (s: any) => void;
+}
 
 export default function ConnectFour({ session, userId, onUpdate }: ConnectFourProps) {
   const supabase = createClient();
-  const state = (session.state as { board: Cell[][]; rPlayer: string; yPlayer: string }) || { board: Array(ROWS).fill(null).map(() => Array(COLS).fill(null)), rPlayer: session.current_turn || userId, yPlayer: "" };
-  const [board, setBoard] = useState<Cell[][]>(state.board || Array(ROWS).fill(null).map(() => Array(COLS).fill(null)));
+  const state = session.state || { board: Array(ROWS).fill(null).map(() => Array(COLS).fill(null)), players: {}, winner: null };
+  const mySymbol = state.players?.[userId] || "R";
   const isMyTurn = session.current_turn === userId;
-  const myColor = state.rPlayer === userId ? "R" : "Y";
 
   useEffect(() => {
     const channel = supabase.channel(`game:${session.id}`)
-      .on("broadcast", { event: "move" }, (payload) => {
-        const newState = payload.payload as { board: Cell[][]; current_turn: string };
-        setBoard(newState.board);
-        onUpdate({ ...session, state: { ...state, board: newState.board }, current_turn: newState.current_turn });
+      .on("broadcast", { event: "c4" }, (payload) => {
+        onUpdate({ ...session, state: payload.payload });
       })
       .subscribe();
     return () => { supabase.removeChannel(channel); };
-  }, [session.id, supabase]);
-
-  const checkWinner = (b: Cell[][]): Cell => {
-    const dirs = [[0,1],[1,0],[1,1],[1,-1]];
-    for (let r = 0; r < ROWS; r++) {
-      for (let c = 0; c < COLS; c++) {
-        const cell = b[r][c];
-        if (!cell) continue;
-        for (const [dr, dc] of dirs) {
-          let count = 1;
-          for (let i = 1; i < 4; i++) {
-            const nr = r + dr * i, nc = c + dc * i;
-            if (nr < 0 || nr >= ROWS || nc < 0 || nc >= COLS || b[nr][nc] !== cell) break;
-            count++;
-          }
-          if (count === 4) return cell;
-        }
-      }
-    }
-    return null;
-  };
+  }, [session.id, supabase, onUpdate, session]);
 
   const dropPiece = async (col: number) => {
-    if (!isMyTurn) return;
-    const newBoard = board.map((row) => [...row]);
+    if (!isMyTurn || state.winner) return;
+    const board = state.board.map((r: any[]) => [...r]);
     let row = -1;
     for (let r = ROWS - 1; r >= 0; r--) {
-      if (!newBoard[r][col]) { row = r; break; }
+      if (!board[r][col]) { row = r; break; }
     }
     if (row === -1) return;
-    newBoard[row][col] = myColor;
-    const winner = checkWinner(newBoard);
-    const nextTurn = state.rPlayer === session.current_turn ? state.yPlayer : state.rPlayer;
-    const update = { state: { ...state, board: newBoard }, current_turn: nextTurn, winner_id: winner ? userId : null };
-    await supabase.from("game_sessions").update(update).eq("id", session.id);
-    await supabase.channel(`game:${session.id}`).send({ type: "broadcast", event: "move", payload: { board: newBoard, current_turn: nextTurn } });
-    setBoard(newBoard);
+    board[row][col] = mySymbol;
+    const winner = checkWinner(board);
+    const newState = { ...state, board, winner };
+    const nextTurn = Object.keys(state.players).find((id) => id !== userId) || userId;
+
+    await supabase.from("game_sessions").update({ state: newState, current_turn: nextTurn, winner_id: winner ? userId : null }).eq("id", session.id);
+    await supabase.channel(`game:${session.id}`).send({ type: "broadcast", event: "c4", payload: newState });
   };
 
-  const winner = checkWinner(board);
+  const reset = async () => {
+    const newState = { ...state, board: Array(ROWS).fill(null).map(() => Array(COLS).fill(null)), winner: null };
+    await supabase.from("game_sessions").update({ state: newState, current_turn: userId, winner_id: null }).eq("id", session.id);
+    await supabase.channel(`game:${session.id}`).send({ type: "broadcast", event: "c4", payload: newState });
+  };
 
   return (
-    <div className="space-y-3">
-      <div className="text-center text-xs text-[var(--muted-foreground)]">
-        {winner ? `Winner: ${winner === "R" ? "Red" : "Yellow"}` : isMyTurn ? "Your turn" : "Partner's turn"}
-      </div>
-      <div className="space-y-1">
-        {board.map((row, r) => (
-          <div key={r} className="flex gap-1 justify-center">
-            {row.map((cell, c) => (
-              <button key={c} onClick={() => dropPiece(c)} disabled={!isMyTurn || !!winner || !!board[0][c]}
-                className={`w-8 h-8 rounded-full border-2 transition ${
-                  cell === "R" ? "bg-red-500 border-red-600" :
-                  cell === "Y" ? "bg-yellow-400 border-yellow-500" :
-                  "bg-[var(--card)] border-[var(--border)] hover:bg-[var(--muted)]"
-                }`} />
+    <div className="flex flex-col items-center">
+      <p className="text-sm text-white/40 mb-4">
+        {state.winner ? `Winner: ${state.winner}` : isMyTurn ? "Your turn" : "Partner's turn"}
+      </p>
+      <div className="inline-block p-3 rounded-2xl bg-white/[0.02] border border-white/[0.06]">
+        {state.board.map((row: any[], r: number) => (
+          <div key={r} className="flex gap-1.5 mb-1.5">
+            {row.map((cell: string | null, c: number) => (
+              <motion.button
+                key={c}
+                whileHover={{ scale: 1.1 }}
+                whileTap={{ scale: 0.9 }}
+                onClick={() => dropPiece(c)}
+                className="w-10 h-10 rounded-full border border-white/[0.08] transition-colors"
+                style={{
+                  background: cell === "R" ? "linear-gradient(135deg, #FF6B8A, #e94560)"
+                    : cell === "Y" ? "linear-gradient(135deg, #fbbf24, #f59e0b)"
+                    : "rgba(255,255,255,0.03)",
+                  boxShadow: cell ? `0 0 12px ${cell === "R" ? "rgba(255,107,138,0.4)" : "rgba(251,191,36,0.4)"}` : "none",
+                }}
+              />
             ))}
           </div>
         ))}
       </div>
+      <button
+        onClick={reset}
+        className="mt-4 flex items-center gap-2 px-4 py-2 rounded-xl bg-white/[0.03] border border-white/10 text-white/40 hover:text-white/70 hover:border-white/20 transition-colors text-sm"
+      >
+        <RotateCcw className="w-4 h-4" /> Reset
+      </button>
     </div>
   );
+}
+
+function checkWinner(board: (string | null)[][]): string | null {
+  const dirs = [[0,1],[1,0],[1,1],[1,-1]];
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS; c++) {
+      const cell = board[r][c];
+      if (!cell) continue;
+      for (const [dr, dc] of dirs) {
+        let count = 1;
+        for (let i = 1; i < 4; i++) {
+          const nr = r + dr * i, nc = c + dc * i;
+          if (nr >= 0 && nr < ROWS && nc >= 0 && nc < COLS && board[nr][nc] === cell) count++;
+          else break;
+        }
+        if (count === 4) return cell;
+      }
+    }
+  }
+  return board.every((r) => r.every((c) => c)) ? "Draw" : null;
 }

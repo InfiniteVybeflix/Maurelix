@@ -1,11 +1,11 @@
 {
   "name": "Maurelix",
   "short_name": "Maurelix",
-  "description": "Where Love Grows — A zero-cost PWA couples operating system.",
-  "start_url": "/app/chat",
+  "description": "Where Love Grows — A private sanctuary for two souls",
+  "start_url": "/",
   "display": "standalone",
-  "background_color": "#FFF8F0",
-  "theme_color": "#FF6B8A",
+  "background_color": "#0a0a1a",
+  "theme_color": "#0a0a1a",
   "orientation": "portrait",
   "icons": [
     { "src": "/icon-192x192.png", "sizes": "192x192", "type": "image/png" },

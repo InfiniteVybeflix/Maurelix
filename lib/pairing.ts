@@ -14,11 +14,24 @@ export async function createPairingCode(): Promise<{ code: string; expiresAt: Da
   const code = generatePairingCode();
   const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
 
-  const { data: existing } = await supabase.from("couples").select("id").eq("user_a_id", user.id).single();
+  const { data: existing } = await supabase
+    .from("couples")
+    .select("id")
+    .eq("user_a_id", user.id)
+    .single();
+
   if (existing) {
-    await supabase.from("couples").update({ pairing_code: code, pairing_code_expires_at: expiresAt.toISOString() }).eq("id", existing.id);
+    await supabase
+      .from("couples")
+      .update({ pairing_code: code, pairing_code_expires_at: expiresAt.toISOString() })
+      .eq("id", existing.id);
   } else {
-    await supabase.from("couples").insert({ user_a_id: user.id, pairing_code: code, pairing_code_expires_at: expiresAt.toISOString(), status: "pending" });
+    await supabase.from("couples").insert({
+      user_a_id: user.id,
+      pairing_code: code,
+      pairing_code_expires_at: expiresAt.toISOString(),
+      status: "pending",
+    });
   }
 
   return { code, expiresAt };
@@ -41,7 +54,11 @@ export async function verifyPairingCode(code: string): Promise<{ success: boolea
 
   const { error } = await supabase
     .from("couples")
-    .update({ user_b_id: user.id, status: "active", relationship_started_at: new Date().toISOString().split("T")[0] })
+    .update({
+      user_b_id: user.id,
+      status: "active",
+      relationship_started_at: new Date().toISOString().split("T")[0],
+    })
     .eq("id", couple.id);
 
   if (error) return { success: false, error: error.message };

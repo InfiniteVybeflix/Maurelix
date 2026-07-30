@@ -14,12 +14,16 @@ export function createClient() {
         set(name: string, value: string, options: CookieOptions) {
           try {
             cookieStore.set({ name, value, ...options });
-          } catch {}
+          } catch (err) {
+            console.error("Cookie set error:", err);
+          }
         },
         remove(name: string, options: CookieOptions) {
           try {
             cookieStore.set({ name, value: "", ...options });
-          } catch {}
+          } catch (err) {
+            console.error("Cookie remove error:", err);
+          }
         },
       },
     }

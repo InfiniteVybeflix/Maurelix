@@ -2,13 +2,9 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 
 export async function GET(request: Request) {
-  const { searchParams } = new URL(request.url);
+  const { searchParams, origin } = new URL(request.url);
   const code = searchParams.get("code");
-  const next = searchParams.get("next") ?? "/app";
-
-  // Detect the actual domain (works on Vercel, localhost, preview deploys)
-  const url = new URL(request.url);
-  const origin = process.env.NEXT_PUBLIC_APP_URL || url.origin;
+  const next = searchParams.get("next") ?? "/onboarding";
 
   if (code) {
     const supabase = createClient();
@@ -18,5 +14,5 @@ export async function GET(request: Request) {
     }
   }
 
-  return NextResponse.redirect(`${origin}/?error=auth_callback_failed`);
+  return NextResponse.redirect(`${origin}/login?error=auth`);
 }

@@ -1,15 +1,24 @@
 "use client";
 
-import { CycleLog, CyclePrediction } from "@/types";
+import { createClient } from "@/lib/supabase/client";
+import type { CycleLog, CyclePrediction } from "@/types";
 
 export function calculatePredictions(logs: CycleLog[]): CyclePrediction | null {
   if (logs.length < 2) return null;
-  const sorted = [...logs].sort((a, b) => new Date(a.start_date).getTime() - new Date(b.start_date).getTime());
+
+  const sorted = [...logs].sort(
+    (a, b) => new Date(a.start_date).getTime() - new Date(b.start_date).getTime()
+  );
+
   const lengths: number[] = [];
   for (let i = 1; i < sorted.length; i++) {
-    const days = Math.round((new Date(sorted[i].start_date).getTime() - new Date(sorted[i - 1].start_date).getTime()) / (1000 * 60 * 60 * 24));
+    const days = Math.round(
+      (new Date(sorted[i].start_date).getTime() - new Date(sorted[i - 1].start_date).getTime()) /
+        (1000 * 60 * 60 * 24)
+    );
     if (days > 10 && days < 60) lengths.push(days);
   }
+
   if (lengths.length === 0) return null;
 
   const weighted = lengths.map((l, i) => ({ length: l, weight: i >= lengths.length - 3 ? 2 : 1 }));
@@ -46,4 +55,22 @@ export function calculatePredictions(logs: CycleLog[]): CyclePrediction | null {
     ai_note: stdDev > 10 || logs.length < 3 ? "Learning your pattern. Add more logs for accuracy." : null,
     created_at: new Date().toISOString(),
   };
+}
+
+export async function savePrediction(userId: string, prediction: CyclePrediction): Promise<void> {
+  const supabase = createClient();
+  await supabase.from("cycle_predictions").upsert(
+    {
+      user_id: userId,
+      predicted_start: prediction.predicted_start,
+      predicted_end: prediction.predicted_end,
+      confidence: prediction.confidence,
+      fertility_window_start: prediction.fertility_window_start,
+      fertility_window_end: prediction.fertility_window_end,
+      pms_window_start: prediction.pms_window_start,
+      ai_note: prediction.ai_note,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "user_id" }
+  );
 }

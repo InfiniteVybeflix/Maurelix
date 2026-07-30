@@ -1,79 +1,111 @@
 "use client";
 
-import { useMemo } from "react";
-import { CycleLog, CyclePrediction } from "@/types";
-import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, addMonths, subMonths } from "date-fns";
-import { ChevronLeft, ChevronRight, Droplets, Thermometer, Sparkles } from "lucide-react";
+import { useState } from "react";
+import { motion } from "framer-motion";
+import { ChevronLeft, ChevronRight, Droplets } from "lucide-react";
+import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameMonth, isSameDay, getDay } from "date-fns";
+import type { CycleLog } from "@/types";
 
 interface CycleCalendarProps {
   logs: CycleLog[];
-  prediction: CyclePrediction | null;
-  currentMonth: Date;
-  onMonthChange: (d: Date) => void;
-  onSelectDate: (d: Date) => void;
+  predictions: { predicted_start: string | null; predicted_end: string | null; fertility_window_start: string | null; fertility_window_end: string | null; pms_window_start: string | null } | null;
+  onSelectDate: (date: Date) => void;
 }
 
-export default function CycleCalendar({ logs, prediction, currentMonth, onMonthChange, onSelectDate }: CycleCalendarProps) {
-  const days = useMemo(() => {
-    const start = startOfMonth(currentMonth);
-    const end = endOfMonth(currentMonth);
-    return eachDayOfInterval({ start, end });
-  }, [currentMonth]);
+export default function CycleCalendar({ logs, predictions, onSelectDate }: CycleCalendarProps) {
+  const [currentMonth, setCurrentMonth] = useState(new Date());
+  const monthStart = startOfMonth(currentMonth);
+  const monthEnd = endOfMonth(currentMonth);
+  const days = eachDayOfInterval({ start: monthStart, end: monthEnd });
+  const startDay = getDay(monthStart);
 
-  const getDayStatus = (day: Date) => {
-    const log = logs.find((l) => isSameDay(new Date(l.start_date), day) || (l.end_date && day >= new Date(l.start_date) && day <= new Date(l.end_date)));
-    if (log) return { type: "period", level: log.flow_level };
-    if (prediction?.predicted_start && isSameDay(day, new Date(prediction.predicted_start))) return { type: "predicted" };
-    if (prediction?.fertility_window_start && prediction?.fertility_window_end) {
-      const fs = new Date(prediction.fertility_window_start);
-      const fe = new Date(prediction.fertility_window_end);
-      if (day >= fs && day <= fe) return { type: "fertile" };
+  const getDayStatus = (date: Date) => {
+    const dateStr = format(date, "yyyy-MM-dd");
+    const log = logs.find((l) => l.start_date <= dateStr && (!l.end_date || l.end_date >= dateStr));
+    if (log) return { type: "period", intensity: log.flow_level };
+    if (predictions?.predicted_start && predictions?.predicted_end) {
+      if (dateStr >= predictions.predicted_start && dateStr <= predictions.predicted_end) return { type: "predicted" };
     }
-    if (prediction?.pms_window_start) {
-      const ps = new Date(prediction.pms_window_start);
-      const pe = prediction.predicted_start ? new Date(prediction.predicted_start) : ps;
-      if (day >= ps && day <= pe) return { type: "pms" };
+    if (predictions?.fertility_window_start && predictions?.fertility_window_end) {
+      if (dateStr >= predictions.fertility_window_start && dateStr <= predictions.fertility_window_end) return { type: "fertile" };
+    }
+    if (predictions?.pms_window_start) {
+      if (dateStr >= predictions.pms_window_start && dateStr < (predictions.predicted_start || "")) return { type: "pms" };
     }
     return null;
   };
 
   return (
-    <div className="bg-[var(--card)] border border-[var(--border)] rounded-2xl p-4">
+    <div className="rounded-2xl glass border border-white/10 p-4">
       <div className="flex items-center justify-between mb-4">
-        <button onClick={() => onMonthChange(subMonths(currentMonth, 1))} className="p-1 rounded-full hover:bg-[var(--muted)] transition"><ChevronLeft className="w-4 h-4" /></button>
-        <h3 className="text-sm font-semibold">{format(currentMonth, "MMMM yyyy")}</h3>
-        <button onClick={() => onMonthChange(addMonths(currentMonth, 1))} className="p-1 rounded-full hover:bg-[var(--muted)] transition"><ChevronRight className="w-4 h-4" /></button>
+        <button onClick={() => setCurrentMonth((d) => new Date(d.getFullYear(), d.getMonth() - 1))} className="p-1.5 rounded-lg hover:bg-white/[0.05] text-white/40 hover:text-white/70 transition-colors">
+          <ChevronLeft className="w-5 h-5" />
+        </button>
+        <h3 className="text-sm font-semibold text-white">{format(currentMonth, "MMMM yyyy")}</h3>
+        <button onClick={() => setCurrentMonth((d) => new Date(d.getFullYear(), d.getMonth() + 1))} className="p-1.5 rounded-lg hover:bg-white/[0.05] text-white/40 hover:text-white/70 transition-colors">
+          <ChevronRight className="w-5 h-5" />
+        </button>
       </div>
-      <div className="grid grid-cols-7 gap-1 text-center mb-2">
-        {["S","M","T","W","T","F","S"].map((d) => <span key={d} className="text-[10px] text-[var(--muted-foreground)] font-medium">{d}</span>)}
+
+      <div className="grid grid-cols-7 gap-1 mb-2">
+        {["S","M","T","W","T","F","S"].map((d) => (
+          <div key={d} className="text-center text-[10px] text-white/20 font-medium py-1">{d}</div>
+        ))}
       </div>
+
       <div className="grid grid-cols-7 gap-1">
+        {Array.from({ length: startDay }).map((_, i) => (
+          <div key={`empty-${i}`} />
+        ))}
         {days.map((day) => {
           const status = getDayStatus(day);
+          const isToday = isSameDay(day, new Date());
           return (
-            <button key={day.toISOString()} onClick={() => onSelectDate(day)}
-              className={`aspect-square rounded-lg text-xs flex items-center justify-center transition ${
-                status?.type === "period" ? "bg-[var(--accent)] text-white" :
-                status?.type === "predicted" ? "bg-[var(--accent)]/30 border border-[var(--accent)]" :
-                status?.type === "fertile" ? "bg-green-500/20 text-green-600" :
-                status?.type === "pms" ? "bg-yellow-500/20 text-yellow-600" :
-                "hover:bg-[var(--muted)]"
-              }`}>
+            <motion.button
+              key={day.toISOString()}
+              whileHover={{ scale: 1.1 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={() => onSelectDate(day)}
+              className={`aspect-square rounded-xl flex items-center justify-center text-xs font-medium transition-all relative ${
+                isToday ? "ring-1 ring-[#FF6B8A]" : ""
+              }`}
+              style={{
+                background: status?.type === "period" ? `rgba(255,107,138,${0.1 + (status.intensity || 1) * 0.15})`
+                  : status?.type === "predicted" ? "rgba(167,139,250,0.15)"
+                  : status?.type === "fertile" ? "rgba(96,165,250,0.15)"
+                  : status?.type === "pms" ? "rgba(251,191,36,0.1)"
+                  : "transparent",
+                color: status?.type === "period" ? "#FF6B8A"
+                  : status?.type === "predicted" ? "#a78bfa"
+                  : status?.type === "fertile" ? "#60a5fa"
+                  : status?.type === "pms" ? "#fbbf24"
+                  : "rgba(255,255,255,0.4)",
+              }}
+            >
               {format(day, "d")}
-              {status?.type === "period" && status.level && (
-                <div className="absolute bottom-0.5 flex gap-px">
-                  {Array.from({ length: status.level }).map((_, i) => <div key={i} className="w-0.5 h-0.5 rounded-full bg-white/60" />)}
-                </div>
+              {status?.type === "period" && (
+                <Droplets className="absolute bottom-0.5 w-2.5 h-2.5 text-[#FF6B8A]" />
               )}
-            </button>
+            </motion.button>
           );
         })}
       </div>
-      <div className="flex gap-3 mt-3 text-[10px]">
-        <span className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-[var(--accent)]" /> Period</span>
-        <span className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-green-500/40" /> Fertile</span>
-        <span className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-yellow-500/40" /> PMS</span>
+
+      <div className="flex gap-4 mt-4 pt-3 border-t border-white/[0.06]">
+        <Legend color="#FF6B8A" label="Period" />
+        <Legend color="#a78bfa" label="Predicted" />
+        <Legend color="#60a5fa" label="Fertile" />
+        <Legend color="#fbbf24" label="PMS" />
       </div>
+    </div>
+  );
+}
+
+function Legend({ color, label }: { color: string; label: string }) {
+  return (
+    <div className="flex items-center gap-1.5">
+      <div className="w-2.5 h-2.5 rounded-full" style={{ background: color }} />
+      <span className="text-[10px] text-white/30">{label}</span>
     </div>
   );
 }

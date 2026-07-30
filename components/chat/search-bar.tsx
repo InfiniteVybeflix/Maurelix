@@ -1,53 +1,61 @@
 "use client";
 
-import { useState, useMemo } from "react";
-import { Message } from "@/types";
+import { useState } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import { Search, X } from "lucide-react";
 
 interface SearchBarProps {
-  messages: Message[];
-  onSelect: (msg: Message) => void;
+  onSearch: (query: string) => void;
 }
 
-export default function SearchBar({ messages, onSelect }: SearchBarProps) {
+export default function SearchBar({ onSearch }: SearchBarProps) {
   const [query, setQuery] = useState("");
-  const [open, setOpen] = useState(false);
+  const [isOpen, setIsOpen] = useState(false);
 
-  const results = useMemo(() => {
-    if (!query.trim()) return [];
-    const q = query.toLowerCase();
-    return messages.filter((m) => (m.decrypted_content || m.content_encrypted).toLowerCase().includes(q)).slice(0, 10);
-  }, [query, messages]);
-
-  if (!open) {
-    return (
-      <button onClick={() => setOpen(true)} className="p-2 rounded-full hover:bg-[var(--muted)] transition">
-        <Search className="w-5 h-5 text-[var(--muted-foreground)]" />
-      </button>
-    );
-  }
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setQuery(e.target.value);
+    onSearch(e.target.value);
+  };
 
   return (
-    <div className="absolute top-0 left-0 right-0 z-30 bg-[var(--background)] border-b border-[var(--border)] px-4 py-2">
-      <div className="flex items-center gap-2">
-        <Search className="w-4 h-4 text-[var(--muted-foreground)]" />
-        <input autoFocus value={query} onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search messages..."
-          className="flex-1 bg-transparent text-sm focus:outline-none" />
-        <button onClick={() => { setOpen(false); setQuery(""); }} className="p-1 rounded-full hover:bg-[var(--muted)] transition">
-          <X className="w-4 h-4" />
-        </button>
-      </div>
-      {results.length > 0 && (
-        <div className="mt-2 max-h-48 overflow-y-auto space-y-1">
-          {results.map((msg) => (
-            <button key={msg.id} onClick={() => { onSelect(msg); setOpen(false); setQuery(""); }}
-              className="w-full text-left px-3 py-2 rounded-lg bg-[var(--card)] border border-[var(--border)] text-xs hover:bg-[var(--muted)] transition truncate">
-              {(msg.decrypted_content || msg.content_encrypted).slice(0, 60)}...
-            </button>
-          ))}
-        </div>
-      )}
+    <div className="relative">
+      <AnimatePresence>
+        {isOpen ? (
+          <motion.div
+            initial={{ width: 40, opacity: 0 }}
+            animate={{ width: "100%", opacity: 1 }}
+            exit={{ width: 40, opacity: 0 }}
+            className="flex items-center gap-2"
+          >
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/30" />
+              <input
+                type="text"
+                value={query}
+                onChange={handleChange}
+                placeholder="Search messages..."
+                autoFocus
+                className="w-full pl-9 pr-8 py-2 rounded-xl bg-white/[0.03] border border-white/10 text-white text-sm placeholder:text-white/20 focus:outline-none focus:border-[#FF6B8A]/30"
+              />
+              <button
+                onClick={() => { setQuery(""); onSearch(""); setIsOpen(false); }}
+                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded-lg hover:bg-white/[0.05] text-white/30 hover:text-white/60 transition-colors"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </motion.div>
+        ) : (
+          <motion.button
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            onClick={() => setIsOpen(true)}
+            className="p-2.5 rounded-xl hover:bg-white/[0.05] text-white/40 hover:text-white/70 transition-colors"
+          >
+            <Search className="w-5 h-5" />
+          </motion.button>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

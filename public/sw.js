@@ -1,43 +1,56 @@
 const CACHE_NAME = "maurelix-v1";
-const STATIC_ASSETS = ["/", "/app/chat", "/manifest.json", "/icon-192x192.png", "/icon-512x512.png"];
+const STATIC_ASSETS = [
+  "/",
+  "/login",
+  "/signup",
+  "/manifest.json",
+  "/icon-192x192.png",
+  "/icon-512x512.png",
+  "/logo.png",
+];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(STATIC_ASSETS))
+    caches.open(CACHE_NAME).then((cache) => {
+      return cache.addAll(STATIC_ASSETS);
+    })
   );
   self.skipWaiting();
 });
 
 self.addEventListener("activate", (event) => {
   event.waitUntil(
-    caches.keys().then((keys) => Promise.all(keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k))))
+    caches.keys().then((names) => {
+      return Promise.all(names.filter((n) => n !== CACHE_NAME).map((n) => caches.delete(n)));
+    })
   );
   self.clients.claim();
 });
 
 self.addEventListener("fetch", (event) => {
-  if (event.request.method !== "GET") return;
+  const { request } = event;
+  const url = new URL(request.url);
+
+  // NEVER cache API routes, auth, or Supabase
+  if (
+    url.pathname.startsWith("/api/") ||
+    url.pathname.startsWith("/auth/") ||
+    url.hostname.includes("supabase") ||
+    request.method !== "GET"
+  ) {
+    return;
+  }
+
   event.respondWith(
-    caches.match(event.request).then((cached) => {
-      return cached || fetch(event.request).then((response) => {
-        if (response.status === 200) {
+    caches.match(request).then((cached) => {
+      return cached || fetch(request).then((response) => {
+        // Only cache same-origin static assets
+        if (url.origin === self.location.origin && (request.destination === "image" || request.destination === "style" || request.destination === "script")) {
           const clone = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+          caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
         }
         return response;
-      }).catch(() => cached);
-    })
-  );
-});
-
-self.addEventListener("push", (event) => {
-  const data = event.data?.json() || {};
-  event.waitUntil(
-    self.registration.showNotification(data.title || "Maurelix", {
-      body: data.body || "New notification",
-      icon: "/icon-192x192.png",
-      badge: "/icon-192x192.png",
-      data: data.data || {},
+      });
     })
   );
 });

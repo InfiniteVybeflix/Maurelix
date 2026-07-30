@@ -1,81 +1,145 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { motion } from "framer-motion";
+import { Mail, Lock, ArrowRight, Sparkles } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
-import { Mail, Lock, Loader2 } from "lucide-react";
 
 export default function LoginPage() {
+  const router = useRouter();
+  const supabase = createClient();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const router = useRouter();
-  const supabase = createClient();
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true);
     setError("");
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    setLoading(false);
-    if (error) setError(error.message);
-    else router.push("/app");
-  };
-
-  const handleOAuth = async () => {
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || window.location.origin;
-    await supabase.auth.signInWithOAuth({
-      provider: "google",
-      options: { redirectTo: `${appUrl}/auth/callback` },
+    setLoading(true);
+    const { error: authError } = await supabase.auth.signInWithPassword({
+      email,
+      password,
     });
+    setLoading(false);
+    if (authError) {
+      setError(authError.message);
+    } else {
+      router.push("/app");
+    }
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center px-4 bg-[#0a0a1a]">
-      <div className="absolute inset-0 bg-gradient-to-b from-[#0a0a1a] via-[#1a1a3e] to-[#2d1b4e]" />
-      <div className="relative z-10 w-full max-w-sm">
-        <div className="text-center mb-8">
-          <img src="/icon-192x192.png" alt="Maurelix" className="w-16 h-16 mx-auto mb-4 rounded-2xl" style={{ boxShadow: "0 0 30px rgba(255,107,138,0.3)" }} />
-          <h1 className="text-2xl font-bold text-white">Welcome back</h1>
-          <p className="text-sm text-white/50">Sign in to Maurelix</p>
+    <div className="relative min-h-screen w-full flex items-center justify-center overflow-hidden"
+      style={{ background: "linear-gradient(180deg, #050510 0%, #0a0a1a 40%, #1a1a3e 100%)" }}
+    >
+      {/* Stars */}
+      <div className="absolute inset-0 pointer-events-none">
+        {Array.from({ length: 80 }).map((_, i) => (
+          <div
+            key={i}
+            className="absolute rounded-full"
+            style={{
+              left: `${Math.random() * 100}%`,
+              top: `${Math.random() * 100}%`,
+              width: `${Math.random() * 2 + 0.5}px`,
+              height: `${Math.random() * 2 + 0.5}px`,
+              background: Math.random() > 0.7 ? "rgba(255,200,220,0.8)" : "rgba(255,255,255,0.6)",
+              animation: `twinkle ${Math.random() * 3 + 2}s ease-in-out ${Math.random() * 5}s infinite`,
+            }}
+          />
+        ))}
+      </div>
+
+      {/* Nebula glow */}
+      <div className="absolute top-1/4 left-1/2 -translate-x-1/2 w-[500px] h-[500px] rounded-full opacity-20 pointer-events-none"
+        style={{ background: "radial-gradient(circle, rgba(255,107,138,0.15) 0%, transparent 70%)" }}
+      />
+
+      <motion.div
+        initial={{ opacity: 0, y: 30 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.8 }}
+        className="relative z-10 w-full max-w-md px-6"
+      >
+        {/* Logo */}
+        <div className="flex flex-col items-center mb-10">
+          <div className="relative mb-4">
+            <div className="absolute inset-0 rounded-full bg-[#FF6B8A]/20 blur-2xl scale-150" />
+            <img
+              src="/logo.png"
+              alt="Maurelix"
+              className="relative h-16 w-16 object-contain drop-shadow-[0_0_20px_rgba(255,107,138,0.5)]"
+              onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+            />
+          </div>
+          <h1 className="text-3xl font-bold text-white tracking-tight">Welcome Back</h1>
+          <p className="mt-2 text-white/50 text-sm">Sign in to your sanctuary</p>
         </div>
 
-        <form onSubmit={handleLogin} className="space-y-4">
+        <form onSubmit={handleLogin} className="space-y-5">
           <div className="relative">
-            <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40" />
-            <input type="email" required placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)}
-              className="w-full pl-10 pr-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm placeholder:text-white/30 focus:outline-none focus:ring-2 focus:ring-[#FF6B8A] focus:border-transparent" />
+            <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-white/30" />
+            <input
+              type="email"
+              placeholder="Email address"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+              className="w-full pl-12 pr-4 py-4 rounded-2xl bg-white/[0.03] border border-white/10 text-white text-sm placeholder:text-white/30 focus:outline-none focus:border-[#FF6B8A]/40 focus:ring-1 focus:ring-[#FF6B8A]/20 transition-all"
+            />
           </div>
+
           <div className="relative">
-            <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40" />
-            <input type="password" required placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)}
-              className="w-full pl-10 pr-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm placeholder:text-white/30 focus:outline-none focus:ring-2 focus:ring-[#FF6B8A] focus:border-transparent" />
+            <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-white/30" />
+            <input
+              type="password"
+              placeholder="Password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+              className="w-full pl-12 pr-4 py-4 rounded-2xl bg-white/[0.03] border border-white/10 text-white text-sm placeholder:text-white/30 focus:outline-none focus:border-[#FF6B8A]/40 focus:ring-1 focus:ring-[#FF6B8A]/20 transition-all"
+            />
           </div>
-          {error && <p className="text-xs text-red-400">{error}</p>}
-          <button type="submit" disabled={loading}
-            className="w-full py-3 rounded-xl text-white font-medium text-sm hover:opacity-90 transition disabled:opacity-50 flex items-center justify-center gap-2"
-            style={{ background: "linear-gradient(135deg, #FF6B8A 0%, #e94560 100%)" }}>
-            {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : "Sign In"}
+
+          {error && (
+            <motion.p
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="text-sm text-red-400 bg-red-400/10 px-4 py-2 rounded-xl"
+            >
+              {error}
+            </motion.p>
+          )}
+
+          <button
+            type="submit"
+            disabled={loading}
+            className="group w-full py-4 rounded-2xl text-white font-semibold text-sm btn-glow flex items-center justify-center gap-2 disabled:opacity-50"
+            style={{ background: "linear-gradient(135deg, #FF6B8A, #e94560)" }}
+          >
+            {loading ? (
+              <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+            ) : (
+              <>
+                Sign In
+                <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+              </>
+            )}
           </button>
         </form>
 
-        <div className="flex items-center gap-3 my-6">
-          <div className="flex-1 h-px bg-white/10" />
-          <span className="text-xs text-white/30">or</span>
-          <div className="flex-1 h-px bg-white/10" />
-        </div>
-
-        <button onClick={handleOAuth}
-          className="w-full py-2.5 rounded-xl border border-white/10 bg-white/5 text-white text-sm font-medium hover:bg-white/10 transition">
-          Continue with Google
-        </button>
-
-        <p className="text-center text-xs text-white/40 mt-6">
-          Don&apos;t have an account? <Link href="/signup" className="text-[#FF6B8A] font-medium hover:underline">Sign up</Link>
+        <p className="mt-8 text-center text-sm text-white/40">
+          Don't have an account?{" "}
+          <button
+            onClick={() => router.push("/signup")}
+            className="text-[#FF6B8A] hover:text-[#ff8fa3] font-medium transition-colors"
+          >
+            Sign up
+          </button>
         </p>
-      </div>
+      </motion.div>
     </div>
   );
 }

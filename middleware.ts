@@ -5,6 +5,13 @@ export async function middleware(request: NextRequest) {
   const response = await updateSession(request);
   const { pathname } = request.nextUrl;
 
+  // Public routes
+  const publicRoutes = ["/", "/login", "/signup", "/auth/callback", "/auth/confirmed"];
+  if (publicRoutes.includes(pathname)) {
+    return response;
+  }
+
+  // Protected routes
   const protectedRoutes = ["/app", "/admin", "/onboarding"];
   const isProtected = protectedRoutes.some((r) => pathname.startsWith(r));
 
@@ -14,14 +21,18 @@ export async function middleware(request: NextRequest) {
     if (!supabaseUrl || !supabaseKey) {
       return NextResponse.redirect(new URL("/", request.url));
     }
-    const authCookie = request.cookies.get(`sb-${supabaseUrl.split("//")[1].split(".")[0]}-auth-token`);
-    if (!authCookie) {
-      return NextResponse.redirect(new URL("/", request.url));
-    }
-  }
 
-  if (pathname === "/admin") {
-    return response;
+    // Use Supabase SSR to check session properly
+    const { updateSession } = await import("@/lib/supabase/middleware");
+    const sessionResponse = await updateSession(request);
+
+    // Check for auth cookie presence as fallback
+    const cookieName = `sb-${supabaseUrl.split("//")[1].split(".")[0]}-auth-token`;
+    const authCookie = request.cookies.get(cookieName);
+
+    if (!authCookie) {
+      return NextResponse.redirect(new URL("/login", request.url));
+    }
   }
 
   return response;

@@ -48,13 +48,14 @@ create policy "Couple members can read"
 create policy "Couple members can update"
   on couples for update using (auth.uid() in (user_a_id, user_b_id));
 
--- 3. DEVICE KEYS (E2EE)
+-- 3. DEVICE KEYS (E2EE) - FIXED: added encryption_salt
 create table device_keys (
   id uuid primary key default gen_random_uuid(),
   user_id uuid references profiles(id) on delete cascade,
   device_fingerprint text not null,
   public_key text not null,
   encrypted_private_key text not null,
+  encryption_salt text not null default '',
   last_used_at timestamptz default now()
 );
 
@@ -166,7 +167,8 @@ create table cycle_predictions (
   fertility_window_end date,
   pms_window_start date,
   ai_note text,
-  created_at timestamptz default now()
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
 );
 
 alter table cycle_predictions enable row level security;
@@ -326,6 +328,24 @@ create policy "Couple gratitude"
   on gratitude_jar for all using (
     couple_id in (select id from couples where user_a_id = auth.uid() or user_b_id = auth.uid())
   );
+
+-- PERFORMANCE INDEXES
+create index idx_messages_couple_created on messages(couple_id, created_at desc);
+create index idx_messages_vault on messages(vault_id) where vault_id is not null;
+create index idx_couples_user_a on couples(user_a_id);
+create index idx_couples_user_b on couples(user_b_id);
+create index idx_couples_pairing on couples(pairing_code);
+create index idx_device_keys_user on device_keys(user_id);
+create index idx_cycle_logs_user on cycle_logs(user_id, start_date desc);
+create index idx_cycle_predictions_user on cycle_predictions(user_id);
+create index idx_memory_pins_couple on memory_pins(couple_id);
+create index idx_quests_couple on quests(couple_id);
+create index idx_token_balance_user on token_balance(user_id);
+create index idx_webrtc_signals_couple on webrtc_signals(couple_id, consumed);
+create index idx_notifications_user_read on notifications(user_id, read);
+create index idx_feedback_user on feedback(user_id);
+create index idx_game_sessions_couple on game_sessions(couple_id);
+create index idx_gratitude_couple on gratitude_jar(couple_id);
 
 -- Functions
 create or replace function public.handle_new_user()
