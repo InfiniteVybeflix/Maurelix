@@ -6,7 +6,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Camera, ChevronRight, ChevronLeft, Heart, Sparkles, Lock } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { generateKeyPair, exportPrivateKeyEncrypted, generateDeviceFingerprint, generateSalt, u8ToHex } from "@/lib/crypto";
-import { generatePairingCode, verifyPairingCode, completePairing } from "@/lib/pairing";
+import { createPairingCode, verifyPairingCode, completePairing } from "@/lib/pairing";
 
 const STEPS = 6;
 const COLORS = ["#FF6B8A", "#a78bfa", "#60a5fa", "#fbbf24", "#34d399", "#f472b6"];
@@ -14,7 +14,7 @@ const LOVE_LANGUAGES = [
   { key: "words", label: "Words of Affirmation", emoji: "💬" },
   { key: "acts", label: "Acts of Service", emoji: "🤝" },
   { key: "gifts", label: "Receiving Gifts", emoji: "🎁" },
-  { key: "time", label: "Quality Time", emoji: "⏰" },
+  { key: "time", label: "Quality Time", emoji: "⏳" },
   { key: "touch", label: "Physical Touch", emoji: "🤗" },
 ];
 
@@ -71,7 +71,7 @@ export default function OnboardingPage() {
 
   const handleGenerateCode = async () => {
     setLoading(true);
-    const result = await generatePairingCode();
+    const result = await createPairingCode();
     setLoading(false);
     if (result) {
       setPairingCode(result.code);
