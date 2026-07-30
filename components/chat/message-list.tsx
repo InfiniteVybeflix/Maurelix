@@ -11,8 +11,8 @@ interface MessageListProps {
   decryptedMap: Record<string, string>;
   onReply: (msg: Message) => void;
   onEdit: (msg: Message) => void;
-  onDelete: (msg: Message, forBoth: boolean) => void;
-  onPin: (msg: Message) => void;
+  onDelete: (messageId: string, forBoth: boolean) => void;
+  onPin: (messageId: string, pinned: boolean) => void;
   onCopy: (text: string) => void;
   onReact: (msgId: string, emoji: string) => void;
 }
