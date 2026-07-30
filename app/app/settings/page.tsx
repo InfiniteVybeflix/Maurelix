@@ -1,15 +1,33 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import type { ForwardRefExoticComponent, RefAttributes } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import {
   ArrowLeft, Moon, Sun, Bell, Shield, Heart, User, Palette,
   LogOut, ChevronRight, Trash2, AlertTriangle,
 } from "lucide-react";
+import type { LucideProps } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useTheme } from "@/components/theme-provider";
 
+// ── Types ──────────────────────────────────────────────────────────────
+type SettingItem = {
+  icon: ForwardRefExoticComponent<Omit<LucideProps, "ref"> & RefAttributes<SVGSVGElement>>;
+  label: string;
+  value: string;
+  action: () => void;
+  colorPicker?: boolean;
+  toggle?: boolean;
+};
+
+type Section = {
+  title: string;
+  items: SettingItem[];
+};
+
+// ── Component ──────────────────────────────────────────────────────────
 export default function SettingsPage() {
   const router = useRouter();
   const supabase = createClient();
@@ -43,7 +61,7 @@ export default function SettingsPage() {
     router.push("/");
   };
 
-  const sections = [
+  const sections: Section[] = [
     {
       title: "Appearance",
       items: [
