@@ -14,8 +14,8 @@ interface MessageBubbleProps {
   decryptedContent?: string;
   onReply: (msg: Message) => void;
   onEdit: (msg: Message) => void;
-  onDelete: (msg: Message, forBoth: boolean) => void;
-  onPin: (msg: Message) => void;
+  onDelete: (messageId: string, forBoth: boolean) => void;
+  onPin: (messageId: string, pinned: boolean) => void;
   onCopy: (text: string) => void;
   onReact: (msgId: string, emoji: string) => void;
 }
@@ -154,13 +154,13 @@ export default function MessageBubble({
                   <button onClick={() => { onEdit(message); setShowMenu(false); }} className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-white/70 hover:bg-white/[0.05] hover:text-white transition-colors">
                     <Edit3 className="w-3.5 h-3.5" /> Edit
                   </button>
-                  <button onClick={() => { onPin(message); setShowMenu(false); }} className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-white/70 hover:bg-white/[0.05] hover:text-white transition-colors">
+                  <button onClick={() => { onPin(message.id, !message.pinned); setShowMenu(false); }} className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-white/70 hover:bg-white/[0.05] hover:text-white transition-colors">
                     <Pin className="w-3.5 h-3.5" /> {message.pinned ? "Unpin" : "Pin"}
                   </button>
-                  <button onClick={() => { onDelete(message, false); setShowMenu(false); }} className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-white/70 hover:bg-white/[0.05] hover:text-white transition-colors">
+                  <button onClick={() => { onDelete(message.id, false); setShowMenu(false); }} className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-white/70 hover:bg-white/[0.05] hover:text-white transition-colors">
                     <Trash2 className="w-3.5 h-3.5" /> Delete for me
                   </button>
-                  <button onClick={() => { onDelete(message, true); setShowMenu(false); }} className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-red-400/70 hover:bg-red-400/10 hover:text-red-400 transition-colors">
+                  <button onClick={() => { onDelete(message.id, true); setShowMenu(false); }} className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-red-400/70 hover:bg-red-400/10 hover:text-red-400 transition-colors">
                     <Trash2 className="w-3.5 h-3.5" /> Delete for both
                   </button>
                 </>
