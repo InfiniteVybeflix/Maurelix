@@ -57,7 +57,8 @@ export function useBiometric() {
         return { success: false, error: "Biometric registration cancelled", credentialId: "" };
       }
 
-      const credId = u8ToB64(new Uint8Array(credential.rawId));
+      const pkCred = credential as PublicKeyCredential;
+      const credId = u8ToB64(new Uint8Array(pkCred.rawId));
       return { success: true, credentialId: credId };
     } catch (err: any) {
       return { success: false, error: err.message || "Biometric registration failed", credentialId: "" };
