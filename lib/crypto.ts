@@ -28,7 +28,7 @@ export async function exportPrivateKeyEncrypted(
     ["deriveKey"]
   );
   const derivedKey = await crypto.subtle.deriveKey(
-    { name: "PBKDF2", salt, iterations: 100000, hash: "SHA-256" },
+    { name: "PBKDF2", salt: salt as unknown as BufferSource, iterations: 100000, hash: "SHA-256" },
     keyMaterial,
     { name: "AES-GCM", length: 256 },
     false,
@@ -37,7 +37,7 @@ export async function exportPrivateKeyEncrypted(
   const exported = await crypto.subtle.exportKey("jwk", privateKey);
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const encrypted = await crypto.subtle.encrypt(
-    { name: "AES-GCM", iv },
+    { name: "AES-GCM", iv: iv as unknown as BufferSource },
     derivedKey,
     encoder.encode(JSON.stringify(exported))
   );
@@ -65,7 +65,7 @@ export async function importPrivateKeyEncrypted(
       ["deriveKey"]
     );
     const derivedKey = await crypto.subtle.deriveKey(
-      { name: "PBKDF2", salt, iterations: 100000, hash: "SHA-256" },
+      { name: "PBKDF2", salt: salt as unknown as BufferSource, iterations: 100000, hash: "SHA-256" },
       keyMaterial,
       { name: "AES-GCM", length: 256 },
       false,
@@ -142,14 +142,12 @@ export async function encryptMessage(
   content: string,
   targetPublicKeyJwk: JsonWebKey
 ): Promise<{ encryptedContent: string; encryptedKey: string; nonce: string }> {
-  // 1. Generate ephemeral ECDH key pair
   const ephemeral = await crypto.subtle.generateKey(
     { name: "ECDH", namedCurve: "P-256" },
     true,
     ["deriveKey"]
   );
 
-  // 2. Import target public key
   const targetPublicKey = await crypto.subtle.importKey(
     "jwk",
     targetPublicKeyJwk,
@@ -158,7 +156,6 @@ export async function encryptMessage(
     []
   );
 
-  // 3. Derive shared secret
   const sharedKey = await crypto.subtle.deriveKey(
     { name: "ECDH", public: targetPublicKey },
     ephemeral.privateKey,
@@ -167,16 +164,14 @@ export async function encryptMessage(
     ["encrypt"]
   );
 
-  // 4. Encrypt content
   const encoder = new TextEncoder();
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const encrypted = await crypto.subtle.encrypt(
-    { name: "AES-GCM", iv },
+    { name: "AES-GCM", iv: iv as unknown as BufferSource },
     sharedKey,
     encoder.encode(content)
   );
 
-  // 5. Export ephemeral public key to send alongside
   const ephemeralPublicJwk = await crypto.subtle.exportKey("jwk", ephemeral.publicKey);
 
   return {
@@ -192,10 +187,8 @@ export async function decryptMessage(
   nonceHex: string,
   privateKey: CryptoKey
 ): Promise<string> {
-  // 1. Decode ephemeral public key
   const ephemeralPublicJwk = JSON.parse(new TextDecoder().decode(b64ToU8(encryptedKeyB64)));
 
-  // 2. Import ephemeral public key
   const ephemeralPublicKey = await crypto.subtle.importKey(
     "jwk",
     ephemeralPublicJwk,
@@ -204,7 +197,6 @@ export async function decryptMessage(
     []
   );
 
-  // 3. Derive shared secret
   const sharedKey = await crypto.subtle.deriveKey(
     { name: "ECDH", public: ephemeralPublicKey },
     privateKey,
@@ -213,7 +205,6 @@ export async function decryptMessage(
     ["decrypt"]
   );
 
-  // 4. Decrypt content
   const iv = hexToU8(nonceHex);
   const ciphertext = b64ToU8(encryptedContentB64);
 
@@ -253,7 +244,7 @@ export async function exportPrivateKeyWithPassword(
     ["deriveKey"]
   );
   const derivedKey = await crypto.subtle.deriveKey(
-    { name: "PBKDF2", salt, iterations: 100000, hash: "SHA-256" },
+    { name: "PBKDF2", salt: salt as unknown as BufferSource, iterations: 100000, hash: "SHA-256" },
     keyMaterial,
     { name: "AES-GCM", length: 256 },
     false,
@@ -262,7 +253,7 @@ export async function exportPrivateKeyWithPassword(
   const exported = await crypto.subtle.exportKey("jwk", privateKey);
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const encrypted = await crypto.subtle.encrypt(
-    { name: "AES-GCM", iv },
+    { name: "AES-GCM", iv: iv as unknown as BufferSource },
     derivedKey,
     encoder.encode(JSON.stringify(exported))
   );
@@ -290,7 +281,7 @@ export async function importPrivateKeyWithPassword(
       ["deriveKey"]
     );
     const derivedKey = await crypto.subtle.deriveKey(
-      { name: "PBKDF2", salt, iterations: 100000, hash: "SHA-256" },
+      { name: "PBKDF2", salt: salt as unknown as BufferSource, iterations: 100000, hash: "SHA-256" },
       keyMaterial,
       { name: "AES-GCM", length: 256 },
       false,
