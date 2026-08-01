@@ -72,9 +72,9 @@ export function useBiometric() {
       }
 
       const challenge = crypto.getRandomValues(new Uint8Array(32));
-      const allowCredentials = [{
-        id: b64ToU8(credentialId),
-        type: "public-key" as const,
+      const allowCredentials: PublicKeyCredentialDescriptor[] = [{
+        id: b64ToU8(credentialId) as unknown as ArrayBuffer,
+        type: "public-key",
       }];
 
       const publicKeyCredentialRequestOptions: PublicKeyCredentialRequestOptions = {
