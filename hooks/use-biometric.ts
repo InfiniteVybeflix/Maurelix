@@ -2,6 +2,23 @@
 
 import { useState, useCallback } from "react";
 
+function u8ToB64(arr: Uint8Array): string {
+  let bin = "";
+  for (let i = 0; i < arr.length; i++) {
+    bin += String.fromCharCode(arr[i]);
+  }
+  return btoa(bin);
+}
+
+function b64ToU8(b64: string): Uint8Array {
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) {
+    bytes[i] = bin.charCodeAt(i);
+  }
+  return bytes;
+}
+
 export function useBiometric() {
   const [isSupported, setIsSupported] = useState(() => {
     if (typeof window === "undefined") return false;
@@ -40,7 +57,7 @@ export function useBiometric() {
         return { success: false, error: "Biometric registration cancelled", credentialId: "" };
       }
 
-      const credId = btoa(String.fromCharCode(...new Uint8Array(credential.rawId)));
+      const credId = u8ToB64(new Uint8Array(credential.rawId));
       return { success: true, credentialId: credId };
     } catch (err: any) {
       return { success: false, error: err.message || "Biometric registration failed", credentialId: "" };
@@ -55,7 +72,7 @@ export function useBiometric() {
 
       const challenge = crypto.getRandomValues(new Uint8Array(32));
       const allowCredentials = [{
-        id: Uint8Array.from(atob(credentialId), (c) => c.charCodeAt(0)),
+        id: b64ToU8(credentialId),
         type: "public-key" as const,
       }];
 
