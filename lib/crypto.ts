@@ -1,67 +1,34 @@
 "use client";
 
-function u8ToB64(arr: Uint8Array): string {
-  let b = "";
-  for (let i = 0; i < arr.length; i++) b += String.fromCharCode(arr[i]);
-  return btoa(b);
-}
+// ── Original crypto helpers ──────────────────────────────────────────────
 
-function b64ToU8(b64: string): Uint8Array {
-  const b = atob(b64);
-  const arr = new Uint8Array(b.length);
-  for (let i = 0; i < b.length; i++) arr[i] = b.charCodeAt(i);
-  return arr;
-}
-
-function u8ToHex(arr: Uint8Array): string {
-  return Array.from(arr)
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
-}
-
-function hexToU8(hex: string): Uint8Array {
-  const arr = new Uint8Array(hex.length / 2);
-  for (let i = 0; i < hex.length; i += 2) {
-    arr[i / 2] = parseInt(hex.substring(i, i + 2), 16);
-  }
-  return arr;
-}
-
-export async function generateKeyPair(): Promise<{
-  publicKey: JsonWebKey;
-  privateKey: CryptoKey;
-}> {
-  const pair = await crypto.subtle.generateKey(
-    {
-      name: "RSA-OAEP",
-      modulusLength: 2048,
-      publicExponent: new Uint8Array([1, 0, 1]),
-      hash: "SHA-256",
-    },
+export async function generateKeyPair(): Promise<{ publicKey: JsonWebKey; privateKey: CryptoKey }> {
+  const keyPair = await crypto.subtle.generateKey(
+    { name: "ECDH", namedCurve: "P-256" },
     true,
-    ["encrypt", "decrypt"]
+    ["deriveKey"]
   );
-  const publicKey = await crypto.subtle.exportKey("jwk", pair.publicKey);
-  return { publicKey, privateKey: pair.privateKey };
+  const publicKey = await crypto.subtle.exportKey("jwk", keyPair.publicKey);
+  return { publicKey, privateKey: keyPair.privateKey };
 }
 
 export async function exportPrivateKeyEncrypted(
   privateKey: CryptoKey,
-  password: string,
+  pin: string,
   salt: Uint8Array
 ): Promise<string> {
-  const raw = await crypto.subtle.exportKey("pkcs8", privateKey);
+  const encoder = new TextEncoder();
   const keyMaterial = await crypto.subtle.importKey(
     "raw",
-    new TextEncoder().encode(password),
+    encoder.encode(pin),
     "PBKDF2",
     false,
     ["deriveKey"]
   );
-  const aesKey = await crypto.subtle.deriveKey(
+  const derivedKey = await crypto.subtle.deriveKey(
     {
       name: "PBKDF2",
-      salt: salt as unknown as BufferSource,
+      salt,
       iterations: 100000,
       hash: "SHA-256",
     },
@@ -70,11 +37,12 @@ export async function exportPrivateKeyEncrypted(
     false,
     ["encrypt"]
   );
+  const exported = await crypto.subtle.exportKey("jwk", privateKey);
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const encrypted = await crypto.subtle.encrypt(
-    { name: "AES-GCM", iv: iv as unknown as BufferSource },
-    aesKey,
-    raw
+    { name: "AES-GCM", iv },
+    derivedKey,
+    encoder.encode(JSON.stringify(exported))
   );
   const combined = new Uint8Array(iv.length + encrypted.byteLength);
   combined.set(iv);
@@ -84,129 +52,181 @@ export async function exportPrivateKeyEncrypted(
 
 export async function importPrivateKeyEncrypted(
   encryptedB64: string,
-  password: string,
+  pin: string,
   salt: Uint8Array
-): Promise<CryptoKey> {
-  const combined = b64ToU8(encryptedB64);
-  const iv = combined.slice(0, 12);
-  const ciphertext = combined.slice(12);
-  const keyMaterial = await crypto.subtle.importKey(
-    "raw",
-    new TextEncoder().encode(password),
-    "PBKDF2",
-    false,
-    ["deriveKey"]
-  );
-  const aesKey = await crypto.subtle.deriveKey(
-    {
-      name: "PBKDF2",
-      salt: salt as unknown as BufferSource,
-      iterations: 100000,
-      hash: "SHA-256",
-    },
-    keyMaterial,
-    { name: "AES-GCM", length: 256 },
-    false,
-    ["decrypt"]
-  );
-  const decrypted = await crypto.subtle.decrypt(
-    { name: "AES-GCM", iv: iv as unknown as BufferSource },
-    aesKey,
-    ciphertext as unknown as BufferSource
-  );
-  return crypto.subtle.importKey(
-    "pkcs8",
-    decrypted,
-    { name: "RSA-OAEP", hash: "SHA-256" },
-    true,
-    ["decrypt"]
-  );
-}
-
-export async function encryptMessage(
-  content: string,
-  recipientPublicKeyJwk: JsonWebKey
-): Promise<{ encryptedContent: string; encryptedKey: string; nonce: string }> {
-  const symKey = await crypto.subtle.generateKey(
-    { name: "AES-GCM", length: 256 },
-    true,
-    ["encrypt", "decrypt"]
-  );
-  const iv = crypto.getRandomValues(new Uint8Array(12));
-  const encoded = new TextEncoder().encode(content);
-  const encryptedContent = await crypto.subtle.encrypt(
-    { name: "AES-GCM", iv: iv as unknown as BufferSource },
-    symKey,
-    encoded
-  );
-
-  const publicKey = await crypto.subtle.importKey(
-    "jwk",
-    recipientPublicKeyJwk,
-    { name: "RSA-OAEP", hash: "SHA-256" },
-    false,
-    ["encrypt"]
-  );
-  const rawSymKey = await crypto.subtle.exportKey("raw", symKey);
-  const encryptedKey = await crypto.subtle.encrypt(
-    { name: "RSA-OAEP" },
-    publicKey,
-    rawSymKey
-  );
-
-  return {
-    encryptedContent: u8ToB64(new Uint8Array(encryptedContent)),
-    encryptedKey: u8ToB64(new Uint8Array(encryptedKey)),
-    nonce: u8ToB64(iv),
-  };
-}
-
-export async function decryptMessage(
-  encryptedContent: string,
-  encryptedKey: string,
-  nonce: string,
-  privateKey: CryptoKey
-): Promise<string> {
-  const symKeyRaw = await crypto.subtle.decrypt(
-    { name: "RSA-OAEP" },
-    privateKey,
-    b64ToU8(encryptedKey) as unknown as BufferSource
-  );
-  const symKey = await crypto.subtle.importKey(
-    "raw",
-    symKeyRaw,
-    { name: "AES-GCM", length: 256 },
-    false,
-    ["decrypt"]
-  );
-  const iv = b64ToU8(nonce);
-  const decrypted = await crypto.subtle.decrypt(
-    { name: "AES-GCM", iv: iv as unknown as BufferSource },
-    symKey,
-    b64ToU8(encryptedContent) as unknown as BufferSource
-  );
-  return new TextDecoder().decode(decrypted);
-}
-
-export function generateDeviceFingerprint(): string {
-  const canvas = document.createElement("canvas");
-  const ctx = canvas.getContext("2d");
-  if (ctx) {
-    ctx.textBaseline = "top";
-    ctx.font = "14px Arial";
-    ctx.fillText("Maurelix fingerprint", 2, 2);
+): Promise<CryptoKey | null> {
+  try {
+    const encoder = new TextEncoder();
+    const combined = b64ToU8(encryptedB64);
+    const iv = combined.slice(0, 12);
+    const ciphertext = combined.slice(12);
+    const keyMaterial = await crypto.subtle.importKey(
+      "raw",
+      encoder.encode(pin),
+      "PBKDF2",
+      false,
+      ["deriveKey"]
+    );
+    const derivedKey = await crypto.subtle.deriveKey(
+      {
+        name: "PBKDF2",
+        salt,
+        iterations: 100000,
+        hash: "SHA-256",
+      },
+      keyMaterial,
+      { name: "AES-GCM", length: 256 },
+      false,
+      ["decrypt"]
+    );
+    const decrypted = await crypto.subtle.decrypt(
+      { name: "AES-GCM", iv: iv as unknown as BufferSource },
+      derivedKey,
+      ciphertext as unknown as BufferSource
+    );
+    const jwk = JSON.parse(new TextDecoder().decode(decrypted));
+    return crypto.subtle.importKey("jwk", jwk, { name: "ECDH", namedCurve: "P-256" }, true, ["deriveKey"]);
+  } catch {
+    return null;
   }
-  const data = canvas.toDataURL();
-  let hash = 0;
-  for (let i = 0; i < data.length; i++) {
-    hash = (hash << 5) - hash + data.charCodeAt(i);
-    hash |= 0;
-  }
-  return `fp_${Math.abs(hash).toString(16)}_${navigator.userAgent.slice(0, 20)}`;
 }
 
 export function generateSalt(): Uint8Array {
   return crypto.getRandomValues(new Uint8Array(16));
 }
 
-export { u8ToHex, hexToU8 };
+export function generateDeviceFingerprint(): string {
+  const raw = [
+    navigator.userAgent,
+    navigator.language,
+    screen.width,
+    screen.height,
+    new Date().getTimezoneOffset(),
+  ].join("|");
+  let hash = 0;
+  for (let i = 0; i < raw.length; i++) {
+    const char = raw.charCodeAt(i);
+    hash = ((hash << 5) - hash + char) | 0;
+  }
+  return Math.abs(hash).toString(16);
+}
+
+export function u8ToHex(arr: Uint8Array): string {
+  return Array.from(arr)
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+export function hexToU8(hex: string): Uint8Array {
+  const bytes = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < hex.length; i += 2) {
+    bytes[i / 2] = parseInt(hex.substring(i, i + 2), 16);
+  }
+  return bytes;
+}
+
+export function u8ToB64(arr: Uint8Array): string {
+  const bin = Array.from(arr)
+    .map((b) => String.fromCharCode(b))
+    .join("");
+  return btoa(bin);
+}
+
+export function b64ToU8(b64: string): Uint8Array {
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) {
+    bytes[i] = bin.charCodeAt(i);
+  }
+  return bytes;
+}
+
+// ── Recovery & Security Question Helpers ─────────────────────────────────
+
+export async function hashAnswer(answer: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(answer.toLowerCase().trim());
+  const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+  return Array.from(new Uint8Array(hashBuffer))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+export async function exportPrivateKeyWithPassword(
+  privateKey: CryptoKey,
+  password: string,
+  salt: Uint8Array
+): Promise<string> {
+  const encoder = new TextEncoder();
+  const keyMaterial = await crypto.subtle.importKey(
+    "raw",
+    encoder.encode(password),
+    "PBKDF2",
+    false,
+    ["deriveKey"]
+  );
+  const derivedKey = await crypto.subtle.deriveKey(
+    {
+      name: "PBKDF2",
+      salt,
+      iterations: 100000,
+      hash: "SHA-256",
+    },
+    keyMaterial,
+    { name: "AES-GCM", length: 256 },
+    false,
+    ["encrypt"]
+  );
+  const exported = await crypto.subtle.exportKey("jwk", privateKey);
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const encrypted = await crypto.subtle.encrypt(
+    { name: "AES-GCM", iv },
+    derivedKey,
+    encoder.encode(JSON.stringify(exported))
+  );
+  const combined = new Uint8Array(iv.length + encrypted.byteLength);
+  combined.set(iv);
+  combined.set(new Uint8Array(encrypted), iv.length);
+  return u8ToB64(combined);
+}
+
+export async function importPrivateKeyWithPassword(
+  encryptedB64: string,
+  password: string,
+  salt: Uint8Array
+): Promise<CryptoKey | null> {
+  try {
+    const encoder = new TextEncoder();
+    const combined = b64ToU8(encryptedB64);
+    const iv = combined.slice(0, 12);
+    const ciphertext = combined.slice(12);
+    const keyMaterial = await crypto.subtle.importKey(
+      "raw",
+      encoder.encode(password),
+      "PBKDF2",
+      false,
+      ["deriveKey"]
+    );
+    const derivedKey = await crypto.subtle.deriveKey(
+      {
+        name: "PBKDF2",
+        salt,
+        iterations: 100000,
+        hash: "SHA-256",
+      },
+      keyMaterial,
+      { name: "AES-GCM", length: 256 },
+      false,
+      ["decrypt"]
+    );
+    const decrypted = await crypto.subtle.decrypt(
+      { name: "AES-GCM", iv: iv as unknown as BufferSource },
+      derivedKey,
+      ciphertext as unknown as BufferSource
+    );
+    const jwk = JSON.parse(new TextDecoder().decode(decrypted));
+    return crypto.subtle.importKey("jwk", jwk, { name: "ECDH", namedCurve: "P-256" }, true, ["deriveKey"]);
+  } catch {
+    return null;
+  }
+}

@@ -11,20 +11,53 @@ export default function AdminGuard({ children }: { children: React.ReactNode }) 
   const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
-    supabase.auth.getUser().then(({ data: { user } }) => {
-      if (!user) {
+    const checkAdmin = async () => {
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+
+      if (authError || !user) {
+        console.log("[AdminGuard] No authenticated user, redirecting to /login");
         router.push("/login");
+        setChecking(false);
         return;
       }
-      supabase.from("profiles").select("is_admin").eq("id", user.id).single().then(({ data }) => {
-        if (data?.is_admin) {
-          setIsAdmin(true);
-        } else {
-          router.push("/app/chat");
-        }
+
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("is_admin, onboarding_completed, partner_id, display_name")
+        .eq("id", user.id)
+        .maybeSingle();
+
+      if (error) {
+        console.error("[AdminGuard] Profile query error:", error.message);
         setChecking(false);
+        router.push("/app");
+        return;
+      }
+
+      if (!data) {
+        console.error("[AdminGuard] No profile found for user", user.id, "— check RLS policies on profiles table.");
+        setChecking(false);
+        router.push("/app");
+        return;
+      }
+
+      console.log("[AdminGuard] Profile loaded:", {
+        is_admin: data.is_admin,
+        onboarding_completed: data.onboarding_completed,
+        partner_id: data.partner_id,
       });
-    });
+
+      if (data.is_admin === true) {
+        setIsAdmin(true);
+      } else {
+        console.log("[AdminGuard] User is not admin, redirecting to /app");
+        router.push("/app");
+      }
+
+      setChecking(false);
+    };
+
+    checkAdmin();
   }, [router, supabase]);
 
   if (checking) {
