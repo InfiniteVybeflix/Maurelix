@@ -3,9 +3,27 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
-import { Camera, ChevronRight, ChevronLeft, Heart, Sparkles, Lock, ShieldCheck, Fingerprint } from "lucide-react";
+import {
+  Camera,
+  ChevronRight,
+  ChevronLeft,
+  Heart,
+  Sparkles,
+  Lock,
+  ShieldCheck,
+  Fingerprint,
+  AlertCircle,
+} from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
-import { generateKeyPair, exportPrivateKeyEncrypted, generateDeviceFingerprint, generateSalt, u8ToHex, hashAnswer, exportPrivateKeyWithPassword } from "@/lib/crypto";
+import {
+  generateKeyPair,
+  exportPrivateKeyEncrypted,
+  generateDeviceFingerprint,
+  generateSalt,
+  u8ToHex,
+  hashAnswer,
+  exportPrivateKeyWithPassword,
+} from "@/lib/crypto";
 import { createPairingCode, verifyPairingCode, completePairing } from "@/lib/pairing";
 import { useBiometric } from "@/hooks/use-biometric";
 import Starfield from "@/components/onboarding/starfield";
@@ -31,15 +49,21 @@ const SECURITY_QUESTIONS = [
 export default function OnboardingPage() {
   const router = useRouter();
   const supabase = createClient();
-  const { isSupported: bioSupported, register: registerBio } = useBiometric();
+  const { isSupported: bioSupported, isPlatformAvailable, checked: bioChecked, register: registerBio } =
+    useBiometric();
 
   const [step, setStep] = useState(0);
   const [profile, setProfile] = useState<Record<string, any>>({});
   const [loading, setLoading] = useState(false);
+  const [globalError, setGlobalError] = useState("");
+
   const [pairingCode, setPairingCode] = useState("");
   const [pairingExpiry, setPairingExpiry] = useState<Date | null>(null);
+  const [pairingCodeError, setPairingCodeError] = useState("");
+
   const [enteredCode, setEnteredCode] = useState("");
   const [pairingError, setPairingError] = useState("");
+
   const [pin, setPin] = useState("");
   const [pinConfirm, setPinConfirm] = useState("");
   const [pinError, setPinError] = useState("");
@@ -54,6 +78,7 @@ export default function OnboardingPage() {
   // Biometric state
   const [bioEnabled, setBioEnabled] = useState(false);
   const [bioError, setBioError] = useState("");
+  const [bioWarning, setBioWarning] = useState("");
 
   const userRef = useRef<any>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -64,9 +89,14 @@ export default function OnboardingPage() {
     supabase.auth.getUser().then(({ data: { user } }) => {
       if (user) {
         userRef.current = user;
-        supabase.from("profiles").select("*").eq("id", user.id).single().then(({ data }) => {
-          if (data) setProfile(data);
-        });
+        supabase
+          .from("profiles")
+          .select("*")
+          .eq("id", user.id)
+          .single()
+          .then(({ data }) => {
+            if (data) setProfile(data);
+          });
       }
     });
   }, [supabase]);
@@ -81,41 +111,61 @@ export default function OnboardingPage() {
   }, [pairingExpiry]);
 
   // Debounced profile sync to DB
-  const syncToDb = useCallback((updates: Record<string, any>) => {
-    const user = userRef.current;
-    if (!user) return;
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(async () => {
-      await supabase.from("profiles").update(updates).eq("id", user.id);
-    }, 600);
-  }, [supabase]);
+  const syncToDb = useCallback(
+    (updates: Record<string, any>) => {
+      const user = userRef.current;
+      if (!user) return;
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      debounceRef.current = setTimeout(async () => {
+        await supabase.from("profiles").update(updates).eq("id", user.id);
+      }, 600);
+    },
+    [supabase]
+  );
 
   // Immediate local state update + debounced DB sync
-  const updateProfile = useCallback((updates: Record<string, any>) => {
-    setProfile((p: any) => ({ ...p, ...updates }));
-    syncToDb(updates);
-  }, [syncToDb]);
-
-  const handleAvatarUpload = useCallback(async (file: File) => {
-    const user = userRef.current;
-    if (!user) return;
-    const path = `avatars/${user.id}/${Date.now()}.jpg`;
-    const { error } = await supabase.storage.from("avatars").upload(path, file, { contentType: file.type });
-    if (!error) {
-      const { data } = supabase.storage.from("avatars").getPublicUrl(path);
-      const updates = { avatar_url: data.publicUrl };
+  const updateProfile = useCallback(
+    (updates: Record<string, any>) => {
       setProfile((p: any) => ({ ...p, ...updates }));
-      await supabase.from("profiles").update(updates).eq("id", user.id);
-    }
-  }, [supabase]);
+      syncToDb(updates);
+    },
+    [syncToDb]
+  );
+
+  const handleAvatarUpload = useCallback(
+    async (file: File) => {
+      const user = userRef.current;
+      if (!user) return;
+      const path = `avatars/${user.id}/${Date.now()}.jpg`;
+      const { error } = await supabase.storage
+        .from("avatars")
+        .upload(path, file, { contentType: file.type });
+      if (!error) {
+        const { data } = supabase.storage.from("avatars").getPublicUrl(path);
+        const updates = { avatar_url: data.publicUrl };
+        setProfile((p: any) => ({ ...p, ...updates }));
+        await supabase.from("profiles").update(updates).eq("id", user.id);
+      }
+    },
+    [supabase]
+  );
 
   const handleGenerateCode = async () => {
     setLoading(true);
+    setPairingCodeError("");
+    setGlobalError("");
+
     const result = await createPairingCode();
     setLoading(false);
-    if (result) {
-      setPairingCode(result.code);
-      setPairingExpiry(result.expiresAt);
+
+    if (result.success) {
+      setPairingCode(result.data.code);
+      setPairingExpiry(result.data.expiresAt);
+    } else {
+      setPairingCodeError(result.error.error);
+      if (result.error.details) {
+        console.error("[Pairing Code] Details:", result.error.details);
+      }
     }
   };
 
@@ -157,323 +207,642 @@ export default function OnboardingPage() {
     const { data: couple } = await supabase
       .from("couples")
       .select("id")
-      .or(`user_a_id.eq.${user.id},user_b_id.eq.${user.id}`)
+      .or(`user_a_id.eq."${user.id}",user_b_id.eq."${user.id}"`)
       .single();
+
     if (couple) {
-      await supabase.from("couples").update({ encryption_pub_key: JSON.stringify(publicKey) }).eq("id", couple.id);
+      await supabase
+        .from("couples")
+        .update({ encryption_pub_key: JSON.stringify(publicKey) })
+        .eq("id", couple.id);
     }
   };
 
   const handlePinSet = () => {
-    if (pin.length < 4) { setPinError("PIN must be at least 4 digits"); return; }
-    if (pin !== pinConfirm) { setPinError("PINs do not match"); return; }
+    if (pin.length < 4) {
+      setPinError("PIN must be at least 4 digits");
+      return;
+    }
+    if (pin !== pinConfirm) {
+      setPinError("PINs do not match");
+      return;
+    }
     sessionStorage.setItem("maurelix_pin", pin);
     setPinError("");
     nextStep();
   };
 
   const handleSecurityQuestions = async () => {
-    if (!sq1 || !sq2 || sq1 === sq2) { setSqError("Please select two different questions"); return; }
-    if (!ans1.trim() || !ans2.trim()) { setSqError("Please answer both questions"); return; }
+    if (!sq1 || !sq2 || sq1 === sq2) {
+      setSqError("Please select two different questions");
+      return;
+    }
+    if (!ans1.trim() || !ans2.trim()) {
+      setSqError("Please answer both questions");
+      return;
+    }
     setSqError("");
     setLoading(true);
     const user = userRef.current;
-    if (!user) { setLoading(false); return; }
+    if (!user) {
+      setLoading(false);
+      return;
+    }
 
     const ans1Hash = await hashAnswer(ans1);
     const ans2Hash = await hashAnswer(ans2);
     const recoverySalt = generateSalt();
     const recoveryPassword = `${ans1.toLowerCase().trim()}|${ans2.toLowerCase().trim()}`;
 
-    // Generate keys now so we can create recovery copy
     const { privateKey } = await generateKeyPair();
-    const recoveryEncrypted = await exportPrivateKeyWithPassword(privateKey, recoveryPassword, recoverySalt);
+    const recoveryEncrypted = await exportPrivateKeyWithPassword(
+      privateKey,
+      recoveryPassword,
+      recoverySalt
+    );
 
-    await supabase.from("profiles").update({
-      security_question_1: sq1,
-      security_answer_1_hash: ans1Hash,
-      security_question_2: sq2,
-      security_answer_2_hash: ans2Hash,
-      recovery_encrypted_private_key: recoveryEncrypted,
-      recovery_salt: u8ToHex(recoverySalt),
-    }).eq("id", user.id);
+    await supabase
+      .from("profiles")
+      .update({
+        security_question_1: sq1,
+        security_answer_1_hash: ans1Hash,
+        security_question_2: sq2,
+        security_answer_2_hash: ans2Hash,
+        recovery_encrypted_private_key: recoveryEncrypted,
+        recovery_salt: u8ToHex(recoverySalt),
+      })
+      .eq("id", user.id);
 
     setLoading(false);
     nextStep();
   };
 
   const handleBiometricSetup = async () => {
-    if (!bioEnabled) { nextStep(); return; }
+    if (!bioEnabled) {
+      nextStep();
+      return;
+    }
     setLoading(true);
     setBioError("");
+    setBioWarning("");
     const user = userRef.current;
-    if (!user) { setLoading(false); return; }
+    if (!user) {
+      setLoading(false);
+      return;
+    }
 
-    const result = await registerBio(user.id, profile.display_name || user.email || "Maurelix User");
+    if (typeof window !== "undefined" && !window.isSecureContext) {
+      setBioWarning(
+        "Biometric setup requires HTTPS. You can skip this step and enable it later from Settings."
+      );
+      setLoading(false);
+      return;
+    }
+
+    const result = await registerBio(
+      user.id,
+      profile.display_name || user.email || "Maurelix User"
+    );
+
     if (result.success && result.credentialId) {
-      await supabase.from("profiles").update({
-        biometric_enabled: true,
-        biometric_credential_id: result.credentialId,
-      }).eq("id", user.id);
+      await supabase
+        .from("profiles")
+        .update({
+          biometric_enabled: true,
+          biometric_credential_id: result.credentialId,
+        })
+        .eq("id", user.id);
       setLoading(false);
       nextStep();
     } else {
-      setBioError(result.error || "Could not enable fingerprint");
+      setBioError(
+        result.error || "Could not enable fingerprint. You can skip this and set it up later in Settings."
+      );
       setLoading(false);
     }
   };
 
-  const nextStep = () => { if (step < STEPS - 1) setStep((s) => s + 1); };
-  const prevStep = () => { if (step > 0) setStep((s) => s - 1); };
+  const nextStep = () => {
+    setGlobalError("");
+    if (step < STEPS - 1) setStep((s) => s + 1);
+  };
+  const prevStep = () => {
+    if (step > 0) setStep((s) => s - 1);
+  };
 
   const stepValid = useMemo(() => {
     switch (step) {
-      case 0: return !!(profile.display_name?.trim());
-      case 4: return pin.length >= 4 && pin === pinConfirm;
-      case 5: return !!(sq1 && sq2 && sq1 !== sq2 && ans1.trim() && ans2.trim());
-      default: return true;
-    }
-  }, [step, profile.display_name, pin, pinConfirm, sq1, sq2, ans1, ans2]);
-
-  const renderStep = () => {
-    switch (step) {
       case 0:
-        return (
-          <div className="text-center space-y-6">
-            <h2 className="text-2xl font-bold text-white">Who are you?</h2>
-            <div className="flex justify-center">
-              <div onClick={() => fileInputRef.current?.click()}
-                className="relative w-28 h-28 rounded-full bg-white/[0.03] border-2 border-white/10 flex items-center justify-center cursor-pointer overflow-hidden hover:border-[#FF6B8A]/40 transition-all group">
+        return !!(profile.display_name?.trim());
+      case 1:
+        return true;
+      case 2:
+        return !!(profile.love_language);
+      case 3:
+        return !!(profile.ai_name?.trim());
+      case 4:
+        return pin.length >= 4 && pin === pinConfirm;
+      case 5:
+        return sq1 && sq2 && sq1 !== sq2 && ans1.trim() && ans2.trim();
+      case 6:
+        return true;
+      case 7:
+        return !!pairingCode || !!profile.partner_id;
+      default:
+        return true;
+    }
+  }, [step, profile, pin, pinConfirm, sq1, sq2, ans1, ans2, pairingCode]);
+
+  const progress = ((step + 1) / STEPS) * 100;
+
+  return (
+    <div className="relative min-h-screen w-full overflow-hidden" style={{ background: "linear-gradient(180deg, #050510 0%, #0a0a1a 40%, #1a1a3e 100%)" }}>
+      <Starfield />
+
+      <div className="fixed top-0 left-0 right-0 h-1 bg-white/[0.05] z-50">
+        <motion.div
+          className="h-full bg-gradient-to-r from-[#FF6B8A] to-[#e94560]"
+          animate={{ width: `${progress}%` }}
+          transition={{ duration: 0.5 }}
+        />
+      </div>
+
+      <div className="relative z-10 flex flex-col items-center justify-center min-h-screen px-6 py-12">
+        <AnimatePresence mode="wait">
+          {step === 0 && (
+            <motion.div
+              key="step0"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              className="w-full max-w-md text-center"
+            >
+              <div className="w-16 h-16 rounded-full bg-[#FF6B8A]/10 border border-[#FF6B8A]/20 flex items-center justify-center mx-auto mb-6">
+                <Sparkles className="w-7 h-7 text-[#FF6B8A]" />
+              </div>
+              <h2 className="text-2xl font-bold text-white mb-2">What should we call you?</h2>
+              <p className="text-white/40 text-sm mb-8">This is how your partner will see you.</p>
+              <input
+                type="text"
+                value={profile.display_name || ""}
+                onChange={(e) => updateProfile({ display_name: e.target.value })}
+                placeholder="Your name"
+                className="w-full px-5 py-4 rounded-2xl bg-white/[0.03] border border-white/10 text-white text-center text-lg placeholder:text-white/20 focus:outline-none focus:border-[#FF6B8A]/40 focus:ring-1 focus:ring-[#FF6B8A]/20 transition-all"
+                maxLength={30}
+              />
+            </motion.div>
+          )}
+
+          {step === 1 && (
+            <motion.div
+              key="step1"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              className="w-full max-w-md text-center"
+            >
+              <h2 className="text-2xl font-bold text-white mb-2">Add a photo</h2>
+              <p className="text-white/40 text-sm mb-8">Let your partner see your face.</p>
+              <div
+                className="relative w-32 h-32 mx-auto mb-6 rounded-full overflow-hidden border-2 border-dashed border-white/20 hover:border-[#FF6B8A]/40 transition-colors cursor-pointer group"
+                onClick={() => fileInputRef.current?.click()}
+              >
                 {profile.avatar_url ? (
-                  <img src={profile.avatar_url} alt="Avatar" className="w-full h-full object-cover" />
+                  <img src={profile.avatar_url} alt="" className="w-full h-full object-cover" />
                 ) : (
-                  <Camera className="w-8 h-8 text-white/30 group-hover:text-[#FF6B8A] transition-colors" />
+                  <div className="w-full h-full flex items-center justify-center">
+                    <Camera className="w-8 h-8 text-white/30 group-hover:text-[#FF6B8A]/60 transition-colors" />
+                  </div>
                 )}
-                <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
                   <Camera className="w-6 h-6 text-white" />
                 </div>
               </div>
-              <input ref={fileInputRef} type="file" accept="image/*" className="hidden"
-                onChange={(e) => e.target.files?.[0] && handleAvatarUpload(e.target.files[0])} />
-            </div>
-            <input type="text" placeholder="Your name" value={profile.display_name || ""}
-              onChange={(e) => updateProfile({ display_name: e.target.value })}
-              className="w-full max-w-xs mx-auto px-5 py-3 rounded-2xl bg-white/[0.03] border border-white/10 text-white text-center focus:outline-none focus:border-[#FF6B8A]/40 focus:ring-1 focus:ring-[#FF6B8A]/20 transition-all" />
-          </div>
-        );
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) handleAvatarUpload(file);
+                }}
+              />
+              <p className="text-xs text-white/20">Optional — you can add one later</p>
+            </motion.div>
+          )}
 
-      case 1:
-        return (
-          <div className="text-center space-y-6">
-            <h2 className="text-2xl font-bold text-white">Pick your vibe</h2>
-            <div className="flex justify-center gap-3 flex-wrap">
-              {COLORS.map((c) => (
-                <button key={c} onClick={() => updateProfile({ theme_color: c })}
-                  className={`w-12 h-12 rounded-xl transition-all ${profile.theme_color === c ? "ring-2 ring-white scale-110" : "hover:scale-105"}`}
-                  style={{ background: c }} />
-              ))}
-            </div>
-            <input type="color" value={profile.theme_color || "#FF6B8A"}
-              onChange={(e) => updateProfile({ theme_color: e.target.value })}
-              className="w-full max-w-xs mx-auto h-12 rounded-xl cursor-pointer" />
-          </div>
-        );
-
-      case 2:
-        return (
-          <div className="text-center space-y-6">
-            <h2 className="text-2xl font-bold text-white">Name your co-mind</h2>
-            <p className="text-white/50 text-sm">What should Syne call itself?</p>
-            <input type="text" placeholder="Syne" value={profile.ai_name || ""}
-              onChange={(e) => updateProfile({ ai_name: e.target.value })}
-              className="w-full max-w-xs mx-auto px-5 py-3 rounded-2xl bg-white/[0.03] border border-white/10 text-white text-center text-lg font-semibold focus:outline-none focus:border-[#FF6B8A]/40 focus:ring-1 focus:ring-[#FF6B8A]/20 transition-all" />
-          </div>
-        );
-
-      case 3:
-        return (
-          <div className="text-center space-y-6">
-            <h2 className="text-2xl font-bold text-white">Your love language</h2>
-            <div className="grid grid-cols-1 gap-3 max-w-sm mx-auto">
-              {LOVE_LANGUAGES.map((ll) => (
-                <button key={ll.key} onClick={() => updateProfile({ love_language: ll.key })}
-                  className={`flex items-center gap-3 px-5 py-3 rounded-2xl border transition-all ${
-                    profile.love_language === ll.key ? "border-[#FF6B8A]/40 bg-[#FF6B8A]/10" : "border-white/10 bg-white/[0.02] hover:border-white/20"
-                  }`}>
-                  <span className="text-xl">{ll.emoji}</span>
-                  <span className="text-white text-sm font-medium">{ll.label}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-        );
-
-      case 4:
-        return (
-          <div className="text-center space-y-6">
-            <div className="flex justify-center">
-              <div className="w-16 h-16 rounded-2xl bg-[#FF6B8A]/10 border border-[#FF6B8A]/20 flex items-center justify-center">
-                <Lock className="w-8 h-8 text-[#FF6B8A]" />
-              </div>
-            </div>
-            <h2 className="text-2xl font-bold text-white">Set your encryption PIN</h2>
-            <p className="text-white/50 text-sm max-w-xs mx-auto">This PIN protects your private messages. Never share it. We cannot recover it without your security answers.</p>
-            <input type="password" inputMode="numeric" pattern="[0-9]*" placeholder="Enter 4+ digit PIN"
-              value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, ""))}
-              className="w-full max-w-xs mx-auto px-5 py-3 rounded-2xl bg-white/[0.03] border border-white/10 text-white text-center tracking-[0.3em] font-mono focus:outline-none focus:border-[#FF6B8A]/40 focus:ring-1 focus:ring-[#FF6B8A]/20 transition-all" />
-            <input type="password" inputMode="numeric" pattern="[0-9]*" placeholder="Confirm PIN"
-              value={pinConfirm} onChange={(e) => setPinConfirm(e.target.value.replace(/\D/g, ""))}
-              className="w-full max-w-xs mx-auto px-5 py-3 rounded-2xl bg-white/[0.03] border border-white/10 text-white text-center tracking-[0.3em] font-mono focus:outline-none focus:border-[#FF6B8A]/40 focus:ring-1 focus:ring-[#FF6B8A]/20 transition-all" />
-            {pinError && <p className="text-sm text-red-400 bg-red-400/10 px-4 py-2 rounded-xl">{pinError}</p>}
-            <button onClick={handlePinSet}
-              className="w-full max-w-xs mx-auto py-3 rounded-2xl text-white font-semibold text-sm btn-glow"
-              style={{ background: "linear-gradient(135deg, #FF6B8A, #e94560)" }}>
-              Secure My Vault
-            </button>
-          </div>
-        );
-
-      case 5:
-        return (
-          <div className="text-center space-y-5">
-            <div className="flex justify-center">
-              <div className="w-16 h-16 rounded-2xl bg-[#FF6B8A]/10 border border-[#FF6B8A]/20 flex items-center justify-center">
-                <ShieldCheck className="w-8 h-8 text-[#FF6B8A]" />
-              </div>
-            </div>
-            <h2 className="text-2xl font-bold text-white">Security Questions</h2>
-            <p className="text-white/50 text-sm max-w-xs mx-auto">These help you recover your PIN if you ever forget it.</p>
-            <div className="max-w-xs mx-auto space-y-3 text-left">
-              <select value={sq1} onChange={(e) => setSq1(e.target.value)}
-                className="w-full px-4 py-3 rounded-xl bg-white/[0.03] border border-white/10 text-white text-sm focus:outline-none focus:border-[#FF6B8A]/40">
-                <option value="" className="bg-[#0a0a1a]">Select question 1</option>
-                {SECURITY_QUESTIONS.map((q) => (
-                  <option key={q} value={q} className="bg-[#0a0a1a]" disabled={q === sq2}>{q}</option>
+          {step === 2 && (
+            <motion.div
+              key="step2"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              className="w-full max-w-md"
+            >
+              <h2 className="text-2xl font-bold text-white text-center mb-2">Your Love Language</h2>
+              <p className="text-white/40 text-sm text-center mb-8">How do you feel most loved?</p>
+              <div className="space-y-3">
+                {LOVE_LANGUAGES.map((ll) => (
+                  <button
+                    key={ll.key}
+                    onClick={() => updateProfile({ love_language: ll.key })}
+                    className={`w-full px-5 py-4 rounded-2xl border transition-all text-left flex items-center gap-4 ${
+                      profile.love_language === ll.key
+                        ? "bg-[#FF6B8A]/10 border-[#FF6B8A]/30"
+                        : "bg-white/[0.02] border-white/10 hover:border-white/20"
+                    }`}
+                  >
+                    <span className="text-2xl">{ll.emoji}</span>
+                    <span className="text-white font-medium">{ll.label}</span>
+                    {profile.love_language === ll.key && (
+                      <Heart className="w-5 h-5 text-[#FF6B8A] ml-auto" />
+                    )}
+                  </button>
                 ))}
-              </select>
-              <input type="text" placeholder="Your answer" value={ans1} onChange={(e) => setAns1(e.target.value)}
-                className="w-full px-4 py-3 rounded-xl bg-white/[0.03] border border-white/10 text-white text-sm focus:outline-none focus:border-[#FF6B8A]/40" />
-              <select value={sq2} onChange={(e) => setSq2(e.target.value)}
-                className="w-full px-4 py-3 rounded-xl bg-white/[0.03] border border-white/10 text-white text-sm focus:outline-none focus:border-[#FF6B8A]/40">
-                <option value="" className="bg-[#0a0a1a]">Select question 2</option>
-                {SECURITY_QUESTIONS.map((q) => (
-                  <option key={q} value={q} className="bg-[#0a0a1a]" disabled={q === sq1}>{q}</option>
-                ))}
-              </select>
-              <input type="text" placeholder="Your answer" value={ans2} onChange={(e) => setAns2(e.target.value)}
-                className="w-full px-4 py-3 rounded-xl bg-white/[0.03] border border-white/10 text-white text-sm focus:outline-none focus:border-[#FF6B8A]/40" />
-            </div>
-            {sqError && <p className="text-sm text-red-400 bg-red-400/10 px-4 py-2 rounded-xl max-w-xs mx-auto">{sqError}</p>}
-            <button onClick={handleSecurityQuestions} disabled={loading}
-              className="w-full max-w-xs mx-auto py-3 rounded-2xl text-white font-semibold text-sm btn-glow disabled:opacity-50"
-              style={{ background: "linear-gradient(135deg, #FF6B8A, #e94560)" }}>
-              {loading ? "Saving..." : "Save & Continue"}
-            </button>
-          </div>
-        );
-
-      case 6:
-        return (
-          <div className="text-center space-y-6">
-            <div className="flex justify-center">
-              <div className="w-16 h-16 rounded-2xl bg-[#FF6B8A]/10 border border-[#FF6B8A]/20 flex items-center justify-center">
-                <Fingerprint className="w-8 h-8 text-[#FF6B8A]" />
               </div>
-            </div>
-            <h2 className="text-2xl font-bold text-white">Fingerprint Unlock</h2>
-            <p className="text-white/50 text-sm max-w-xs mx-auto">
-              {bioSupported
-                ? "Unlock your vault with your fingerprint for faster access."
-                : "Your device doesn't support biometric authentication."}
-            </p>
-            {bioSupported && (
-              <div className="flex items-center justify-center gap-3">
-                <button onClick={() => setBioEnabled(false)}
-                  className={`px-6 py-2.5 rounded-xl text-sm font-medium transition-all ${!bioEnabled ? "bg-[#FF6B8A]/20 text-[#FF6B8A] border border-[#FF6B8A]/30" : "bg-white/[0.03] text-white/50 border border-white/10"}`}>
-                  Skip
-                </button>
-                <button onClick={() => setBioEnabled(true)}
-                  className={`px-6 py-2.5 rounded-xl text-sm font-medium transition-all ${bioEnabled ? "bg-[#FF6B8A]/20 text-[#FF6B8A] border border-[#FF6B8A]/30" : "bg-white/[0.03] text-white/50 border border-white/10"}`}>
-                  Enable
-                </button>
-              </div>
-            )}
-            {bioError && <p className="text-sm text-red-400 bg-red-400/10 px-4 py-2 rounded-xl max-w-xs mx-auto">{bioError}</p>}
-            <button onClick={handleBiometricSetup} disabled={loading || !bioSupported}
-              className="w-full max-w-xs mx-auto py-3 rounded-2xl text-white font-semibold text-sm btn-glow disabled:opacity-50"
-              style={{ background: "linear-gradient(135deg, #FF6B8A, #e94560)" }}>
-              {loading ? "Setting up..." : bioEnabled ? "Register Fingerprint" : "Continue"}
-            </button>
-          </div>
-        );
+            </motion.div>
+          )}
 
-      case 7:
-        return (
-          <div className="text-center space-y-6">
-            <h2 className="text-2xl font-bold text-white">Connect with your partner</h2>
-            {!pairingCode ? (
+          {step === 3 && (
+            <motion.div
+              key="step3"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              className="w-full max-w-md text-center"
+            >
+              <div className="w-16 h-16 rounded-full bg-[#a78bfa]/10 border border-[#a78bfa]/20 flex items-center justify-center mx-auto mb-6">
+                <Sparkles className="w-7 h-7 text-[#a78bfa]" />
+              </div>
+              <h2 className="text-2xl font-bold text-white mb-2">Name your co-mind</h2>
+              <p className="text-white/40 text-sm mb-8">What would you like to call Syne?</p>
+              <input
+                type="text"
+                value={profile.ai_name || ""}
+                onChange={(e) => updateProfile({ ai_name: e.target.value })}
+                placeholder="Syne"
+                className="w-full px-5 py-4 rounded-2xl bg-white/[0.03] border border-white/10 text-white text-center text-lg placeholder:text-white/20 focus:outline-none focus:border-[#a78bfa]/40 focus:ring-1 focus:ring-[#a78bfa]/20 transition-all"
+                maxLength={20}
+              />
+            </motion.div>
+          )}
+
+          {step === 4 && (
+            <motion.div
+              key="step4"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              className="w-full max-w-md text-center"
+            >
+              <div className="w-16 h-16 rounded-full bg-[#fbbf24]/10 border border-[#fbbf24]/20 flex items-center justify-center mx-auto mb-6">
+                <Lock className="w-7 h-7 text-[#fbbf24]" />
+              </div>
+              <h2 className="text-2xl font-bold text-white mb-2">Create a PIN</h2>
+              <p className="text-white/40 text-sm mb-8">This encrypts your messages. Never share it.</p>
+              <input
+                type="password"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                value={pin}
+                onChange={(e) => {
+                  const val = e.target.value.replace(/\D/g, "");
+                  setPin(val);
+                  setPinError("");
+                }}
+                placeholder="Enter PIN (min 4 digits)"
+                className="w-full px-5 py-4 rounded-2xl bg-white/[0.03] border border-white/10 text-white text-center text-lg placeholder:text-white/20 focus:outline-none focus:border-[#fbbf24]/40 focus:ring-1 focus:ring-[#fbbf24]/20 transition-all mb-4"
+                maxLength={12}
+              />
+              <input
+                type="password"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                value={pinConfirm}
+                onChange={(e) => {
+                  const val = e.target.value.replace(/\D/g, "");
+                  setPinConfirm(val);
+                  setPinError("");
+                }}
+                placeholder="Confirm PIN"
+                className="w-full px-5 py-4 rounded-2xl bg-white/[0.03] border border-white/10 text-white text-center text-lg placeholder:text-white/20 focus:outline-none focus:border-[#fbbf24]/40 focus:ring-1 focus:ring-[#fbbf24]/20 transition-all"
+                maxLength={12}
+              />
+              {pinError && (
+                <p className="mt-3 text-sm text-red-400 bg-red-400/10 px-4 py-2 rounded-xl">{pinError}</p>
+              )}
+            </motion.div>
+          )}
+
+          {step === 5 && (
+            <motion.div
+              key="step5"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              className="w-full max-w-md"
+            >
+              <div className="w-16 h-16 rounded-full bg-[#34d399]/10 border border-[#34d399]/20 flex items-center justify-center mx-auto mb-6">
+                <ShieldCheck className="w-7 h-7 text-[#34d399]" />
+              </div>
+              <h2 className="text-2xl font-bold text-white text-center mb-2">Recovery Questions</h2>
+              <p className="text-white/40 text-sm text-center mb-8">In case you forget your PIN.</p>
+
               <div className="space-y-4">
-                <button onClick={handleGenerateCode} disabled={loading}
-                  className="w-full max-w-xs mx-auto py-4 rounded-2xl text-white font-semibold text-sm btn-glow flex items-center justify-center gap-2 disabled:opacity-50"
-                  style={{ background: "linear-gradient(135deg, #FF6B8A, #e94560)" }}>
-                  {loading ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <><Sparkles className="w-4 h-4" /> Generate Pairing Code</>}
-                </button>
-                <p className="text-white/30 text-sm">or enter their code</p>
-                <div className="flex gap-3 max-w-xs mx-auto">
-                  <input type="text" inputMode="numeric" maxLength={6} placeholder="000000" value={enteredCode}
-                    onChange={(e) => setEnteredCode(e.target.value.replace(/\D/g, ""))}
-                    className="flex-1 px-5 py-3 rounded-2xl bg-white/[0.03] border border-white/10 text-white text-center tracking-[0.3em] font-mono focus:outline-none focus:border-[#FF6B8A]/40 focus:ring-1 focus:ring-[#FF6B8A]/20 transition-all" />
-                  <button onClick={handleVerifyCode} disabled={loading || enteredCode.length !== 6}
-                    className="px-5 py-3 rounded-2xl bg-white/[0.05] border border-white/10 text-white hover:bg-white/10 transition-all disabled:opacity-30">
-                    <ChevronRight className="w-5 h-5" />
+                <div>
+                  <label className="text-xs text-white/40 mb-1.5 block">Question 1</label>
+                  <select
+                    value={sq1}
+                    onChange={(e) => { setSq1(e.target.value); setSqError(""); }}
+                    className="w-full px-4 py-3 rounded-xl bg-white/[0.03] border border-white/10 text-white text-sm focus:outline-none focus:border-[#34d399]/40"
+                  >
+                    <option value="" className="bg-[#0a0a1a]">Select a question...</option>
+                    {SECURITY_QUESTIONS.map((q) => (
+                      <option key={q} value={q} className="bg-[#0a0a1a]">{q}</option>
+                    ))}
+                  </select>
+                  <input
+                    type="text"
+                    value={ans1}
+                    onChange={(e) => { setAns1(e.target.value); setSqError(""); }}
+                    placeholder="Your answer"
+                    className="w-full mt-2 px-4 py-3 rounded-xl bg-white/[0.03] border border-white/10 text-white text-sm placeholder:text-white/20 focus:outline-none focus:border-[#34d399]/40"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs text-white/40 mb-1.5 block">Question 2</label>
+                  <select
+                    value={sq2}
+                    onChange={(e) => { setSq2(e.target.value); setSqError(""); }}
+                    className="w-full px-4 py-3 rounded-xl bg-white/[0.03] border border-white/10 text-white text-sm focus:outline-none focus:border-[#34d399]/40"
+                  >
+                    <option value="" className="bg-[#0a0a1a]">Select a question...</option>
+                    {SECURITY_QUESTIONS.map((q) => (
+                      <option key={q} value={q} className="bg-[#0a0a1a]">{q}</option>
+                    ))}
+                  </select>
+                  <input
+                    type="text"
+                    value={ans2}
+                    onChange={(e) => { setAns2(e.target.value); setSqError(""); }}
+                    placeholder="Your answer"
+                    className="w-full mt-2 px-4 py-3 rounded-xl bg-white/[0.03] border border-white/10 text-white text-sm placeholder:text-white/20 focus:outline-none focus:border-[#34d399]/40"
+                  />
+                </div>
+              </div>
+
+              {sqError && (
+                <p className="mt-3 text-sm text-red-400 bg-red-400/10 px-4 py-2 rounded-xl">{sqError}</p>
+              )}
+            </motion.div>
+          )}
+
+          {step === 6 && (
+            <motion.div
+              key="step6"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              className="w-full max-w-md text-center"
+            >
+              <div className="w-16 h-16 rounded-full bg-[#60a5fa]/10 border border-[#60a5fa]/20 flex items-center justify-center mx-auto mb-6">
+                <Fingerprint className="w-7 h-7 text-[#60a5fa]" />
+              </div>
+              <h2 className="text-2xl font-bold text-white mb-2">Biometric Login</h2>
+              <p className="text-white/40 text-sm mb-8">Unlock Maurelix with your fingerprint or face.</p>
+
+              {!bioChecked ? (
+                <div className="flex items-center justify-center py-8">
+                  <div className="w-8 h-8 border-2 border-[#60a5fa]/30 border-t-[#60a5fa] rounded-full animate-spin" />
+                </div>
+              ) : !bioSupported ? (
+                <div className="p-4 rounded-2xl bg-white/[0.02] border border-white/10">
+                  <AlertCircle className="w-6 h-6 text-white/30 mx-auto mb-2" />
+                  <p className="text-sm text-white/40">
+                    Biometric authentication is not available on this device or browser.
+                  </p>
+                  <p className="text-xs text-white/20 mt-1">
+                    {typeof window !== "undefined" && !window.isSecureContext
+                      ? "HTTPS is required for biometric auth."
+                      : "Your browser or device does not support WebAuthn."}
+                  </p>
+                </div>
+              ) : (
+                <>
+                  <label className="flex items-center gap-3 px-5 py-4 rounded-2xl bg-white/[0.02] border border-white/10 cursor-pointer hover:border-[#60a5fa]/20 transition-colors">
+                    <input
+                      type="checkbox"
+                      checked={bioEnabled}
+                      onChange={(e) => {
+                        setBioEnabled(e.target.checked);
+                        setBioError("");
+                        setBioWarning("");
+                      }}
+                      className="w-5 h-5 rounded accent-[#60a5fa]"
+                    />
+                    <span className="text-white font-medium">Enable fingerprint / face unlock</span>
+                  </label>
+
+                  {bioWarning && (
+                    <motion.p
+                      initial={{ opacity: 0, y: 5 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="mt-4 text-sm text-amber-400 bg-amber-400/10 px-4 py-3 rounded-xl"
+                    >
+                      {bioWarning}
+                    </motion.p>
+                  )}
+
+                  {bioError && (
+                    <motion.p
+                      initial={{ opacity: 0, y: 5 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="mt-4 text-sm text-red-400 bg-red-400/10 px-4 py-3 rounded-xl"
+                    >
+                      {bioError}
+                    </motion.p>
+                  )}
+
+                  {!isPlatformAvailable && bioEnabled && (
+                    <p className="mt-3 text-xs text-white/30">
+                      No platform authenticator detected. You may be prompted to use a security key or phone instead.
+                    </p>
+                  )}
+                </>
+              )}
+            </motion.div>
+          )}
+
+          {step === 7 && (
+            <motion.div
+              key="step7"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              className="w-full max-w-md"
+            >
+              <div className="w-16 h-16 rounded-full bg-[#FF6B8A]/10 border border-[#FF6B8A]/20 flex items-center justify-center mx-auto mb-6">
+                <Heart className="w-7 h-7 text-[#FF6B8A]" />
+              </div>
+              <h2 className="text-2xl font-bold text-white text-center mb-2">Connect with your partner</h2>
+              <p className="text-white/40 text-sm text-center mb-8">Generate a code and share it with them.</p>
+
+              {pairingCode ? (
+                <motion.div
+                  initial={{ scale: 0.9, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  className="text-center"
+                >
+                  <div className="inline-flex items-center gap-3 px-6 py-4 rounded-2xl bg-white/[0.03] border border-[#FF6B8A]/20 mb-4">
+                    <span className="text-3xl font-bold tracking-[0.3em] text-white">{pairingCode}</span>
+                    <button
+                      onClick={() => navigator.clipboard.writeText(pairingCode)}
+                      className="p-2 rounded-lg hover:bg-white/[0.05] text-white/30 hover:text-white/60 transition-colors"
+                      title="Copy code"
+                    >
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                      </svg>
+                    </button>
+                  </div>
+                  <p className="text-sm text-white/40 mb-6">
+                    Expires in {Math.max(0, Math.ceil(((pairingExpiry?.getTime() || 0) - Date.now()) / 60000))} minutes
+                  </p>
+                  <button
+                    onClick={handleGenerateCode}
+                    disabled={loading}
+                    className="px-5 py-2.5 rounded-xl text-sm text-white/50 hover:text-white/80 hover:bg-white/[0.05] transition-colors"
+                  >
+                    {loading ? "Generating..." : "Generate new code"}
+                  </button>
+                </motion.div>
+              ) : (
+                <div className="text-center">
+                  <button
+                    onClick={handleGenerateCode}
+                    disabled={loading}
+                    className="px-8 py-4 rounded-2xl text-white font-semibold text-sm btn-glow inline-flex items-center gap-2 disabled:opacity-50"
+                    style={{ background: "linear-gradient(135deg, #FF6B8A, #e94560)" }}
+                  >
+                    {loading ? (
+                      <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    ) : (
+                      <>
+                        <Sparkles className="w-4 h-4" />
+                        Generate Pairing Code
+                      </>
+                    )}
+                  </button>
+
+                  {pairingCodeError && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 5 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="mt-4 p-4 rounded-2xl bg-red-400/10 border border-red-400/20 text-left"
+                    >
+                      <div className="flex items-start gap-2">
+                        <AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
+                        <div>
+                          <p className="text-sm text-red-400">{pairingCodeError}</p>
+                          <p className="text-xs text-red-400/60 mt-1">
+                            If this persists, ensure your Supabase database has the RLS policies from migration 003_fix_pairing_rls.sql applied.
+                          </p>
+                        </div>
+                      </div>
+                    </motion.div>
+                  )}
+                </div>
+              )}
+
+              <div className="mt-8 pt-6 border-t border-white/[0.06]">
+                <p className="text-sm text-white/30 text-center mb-4">Or enter your partner&apos;s code</p>
+                <div className="flex gap-3">
+                  <input
+                    type="text"
+                    value={enteredCode}
+                    onChange={(e) => {
+                      const val = e.target.value.replace(/\D/g, "").slice(0, 6);
+                      setEnteredCode(val);
+                      setPairingError("");
+                    }}
+                    placeholder="6-digit code"
+                    className="flex-1 px-5 py-3 rounded-2xl bg-white/[0.03] border border-white/10 text-white text-center text-lg tracking-[0.2em] placeholder:text-white/20 placeholder:tracking-normal focus:outline-none focus:border-[#FF6B8A]/40 focus:ring-1 focus:ring-[#FF6B8A]/20 transition-all"
+                    maxLength={6}
+                  />
+                  <button
+                    onClick={handleVerifyCode}
+                    disabled={loading || enteredCode.length !== 6}
+                    className="px-6 py-3 rounded-2xl text-white font-medium text-sm btn-glow disabled:opacity-50"
+                    style={{ background: "linear-gradient(135deg, #FF6B8A, #e94560)" }}
+                  >
+                    {loading ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : "Connect"}
                   </button>
                 </div>
-                {pairingError && <p className="text-sm text-red-400 bg-red-400/10 px-4 py-2 rounded-xl max-w-xs mx-auto">{pairingError}</p>}
+                {pairingError && (
+                  <p className="mt-3 text-sm text-red-400 bg-red-400/10 px-4 py-2 rounded-xl text-center">{pairingError}</p>
+                )}
               </div>
-            ) : (
-              <div className="space-y-4">
-                <div className="inline-block px-8 py-4 rounded-2xl bg-white/[0.03] border border-[#FF6B8A]/20">
-                  <p className="text-3xl font-mono font-bold text-[#FF6B8A] tracking-[0.2em]">{pairingCode}</p>
-                </div>
-                <p className="text-white/40 text-sm">Expires in {pairingExpiry ? Math.max(0, Math.ceil((pairingExpiry.getTime() - Date.now()) / 1000 / 60)) : 0} minutes</p>
-                <p className="text-white/30 text-xs">Share this code with your partner. Wait for them to connect.</p>
-              </div>
-            )}
-          </div>
-        );
-
-      default:
-        return null;
-    }
-  };
-
-  return (
-    <div className="relative min-h-screen w-full flex flex-col items-center justify-center overflow-hidden"
-      style={{ background: "linear-gradient(180deg, #050510 0%, #0a0a1a 40%, #1a1a3e 100%)" }}>
-      <Starfield />
-      <div className="relative z-10 w-full max-w-md px-6">
-        <div className="flex justify-center gap-2 mb-10">
-          {Array.from({ length: STEPS }).map((_, i) => (
-            <div key={i} className={`h-1.5 rounded-full transition-all duration-500 ${i <= step ? "w-8 bg-[#FF6B8A]" : "w-4 bg-white/10"}`} />
-          ))}
-        </div>
-        <AnimatePresence mode="wait">
-          <motion.div key={step} initial={{ opacity: 0, x: 30 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -30 }} transition={{ duration: 0.3 }}>
-            {renderStep()}
-          </motion.div>
+            </motion.div>
+          )}
         </AnimatePresence>
-        <div className="flex justify-between mt-10">
-          <button onClick={prevStep} disabled={step === 0}
-            className="flex items-center gap-1 px-4 py-2 text-sm text-white/40 hover:text-white disabled:opacity-0 transition-all">
-            <ChevronLeft className="w-4 h-4" /> Back
-          </button>
-          {step < STEPS - 1 && step !== 4 && step !== 5 && step !== 6 && (
-            <button onClick={nextStep} disabled={!stepValid}
-              className="flex items-center gap-1 px-4 py-2 text-sm text-[#FF6B8A] hover:text-[#ff8fa3] transition-colors disabled:opacity-30">
-              Next <ChevronRight className="w-4 h-4" />
+
+        {globalError && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="mt-6 p-4 rounded-2xl bg-red-400/10 border border-red-400/20 text-sm text-red-400 max-w-md text-center"
+          >
+            {globalError}
+          </motion.div>
+        )}
+
+        <div className="flex items-center gap-4 mt-10">
+          {step > 0 && (
+            <button
+              onClick={prevStep}
+              className="p-3 rounded-2xl hover:bg-white/[0.05] text-white/40 hover:text-white/70 transition-colors"
+            >
+              <ChevronLeft className="w-5 h-5" />
+            </button>
+          )}
+          {step < STEPS - 1 ? (
+            <button
+              onClick={() => {
+                if (step === 4) handlePinSet();
+                else if (step === 5) handleSecurityQuestions();
+                else if (step === 6) handleBiometricSetup();
+                else nextStep();
+              }}
+              disabled={!stepValid || loading}
+              className="px-8 py-3 rounded-2xl text-white font-semibold text-sm btn-glow disabled:opacity-30 disabled:cursor-not-allowed flex items-center gap-2"
+              style={{ background: "linear-gradient(135deg, #FF6B8A, #e94560)" }}
+            >
+              {loading ? (
+                <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+              ) : (
+                <>
+                  Continue
+                  <ChevronRight className="w-4 h-4" />
+                </>
+              )}
+            </button>
+          ) : (
+            <button
+              onClick={() => router.push("/app/chat")}
+              className="px-8 py-3 rounded-2xl text-white font-semibold text-sm btn-glow flex items-center gap-2"
+              style={{ background: "linear-gradient(135deg, #FF6B8A, #e94560)" }}
+            >
+              Enter Maurelix
+              <Heart className="w-4 h-4" />
             </button>
           )}
         </div>
+
+        <p className="mt-4 text-xs text-white/20">
+          Step {step + 1} of {STEPS}
+        </p>
       </div>
     </div>
   );

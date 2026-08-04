@@ -7,12 +7,14 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { messages, context, temperature = 0.8 } = body;
 
-    const gatewayUrl = process.env.NEXT_PUBLIC_AEVIBRON_GATEWAY_URL;
+    // FIX: Use non-public env var for server-side secrets.
+    // The gateway URL can be public (it's just an endpoint), but the API key must not be.
+    const gatewayUrl = process.env.AEVIBRON_GATEWAY_URL || process.env.NEXT_PUBLIC_AEVIBRON_GATEWAY_URL;
     const apiKey = process.env.AEVIBRON_API_KEY;
 
     if (!gatewayUrl || !apiKey) {
       return NextResponse.json(
-        { error: "AI service not configured" },
+        { error: "AI service not configured. Set AEVIBRON_GATEWAY_URL and AEVIBRON_API_KEY environment variables." },
         { status: 500 }
       );
     }

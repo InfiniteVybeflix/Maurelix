@@ -1,6 +1,7 @@
 -- Enable extensions
 create extension if not exists "uuid-ossp";
 
+-- ═══════════════════════════════════════════════════════════════════════════════
 -- 1. PROFILES
 create table profiles (
   id uuid primary key references auth.users(id) on delete cascade,
@@ -13,6 +14,15 @@ create table profiles (
   wallpaper_url text,
   onboarding_completed boolean default false,
   love_language text check (love_language in ('words', 'acts', 'gifts', 'time', 'touch')),
+  -- Security & biometric (added in migration 002, included here for fresh installs)
+  security_question_1 text,
+  security_answer_1_hash text,
+  security_question_2 text,
+  security_answer_2_hash text,
+  recovery_encrypted_private_key text,
+  recovery_salt text,
+  biometric_enabled boolean default false,
+  biometric_credential_id text,
   created_at timestamptz default now()
 );
 
@@ -27,6 +37,12 @@ create policy "Users read partner profile"
 create policy "Users update own profile"
   on profiles for update using (auth.uid() = id);
 
+-- Admin policies (from migration 002)
+create policy "Admin read all profiles"
+  on profiles for select
+  using (exists (select 1 from profiles where id = auth.uid() and is_admin = true));
+
+-- ═══════════════════════════════════════════════════════════════════════════════
 -- 2. COUPLES
 create table couples (
   id uuid primary key default gen_random_uuid(),
@@ -36,6 +52,7 @@ create table couples (
   pairing_code_expires_at timestamptz,
   encryption_pub_key text,
   relationship_started_at date,
+  paired_at timestamptz,
   status text default 'pending' check (status in ('pending', 'active', 'paused', 'ended')),
   created_at timestamptz default now()
 );
@@ -48,7 +65,21 @@ create policy "Couple members can read"
 create policy "Couple members can update"
   on couples for update using (auth.uid() in (user_a_id, user_b_id));
 
--- 3. DEVICE KEYS (E2EE) - FIXED: added encryption_salt
+-- CRITICAL FIX: Insert policy must exist for createPairingCode() to work
+create policy "Users can create couples"
+  on couples for insert with check (auth.uid() = user_a_id);
+
+-- CRITICAL FIX: User A must be able to update their pending couple (before user_b exists)
+create policy "User A can update pending couple"
+  on couples for update using (auth.uid() = user_a_id);
+
+-- Admin policies
+create policy "Admin read all couples"
+  on couples for select
+  using (exists (select 1 from profiles where id = auth.uid() and is_admin = true));
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- 3. DEVICE KEYS (E2EE)
 create table device_keys (
   id uuid primary key default gen_random_uuid(),
   user_id uuid references profiles(id) on delete cascade,
@@ -64,6 +95,11 @@ alter table device_keys enable row level security;
 create policy "Own keys only"
   on device_keys for all using (auth.uid() = user_id);
 
+create policy "Admin read all device_keys"
+  on device_keys for select
+  using (exists (select 1 from profiles where id = auth.uid() and is_admin = true));
+
+-- ═══════════════════════════════════════════════════════════════════════════════
 -- 4. VAULTS
 create table vaults (
   id uuid primary key default gen_random_uuid(),
@@ -77,6 +113,7 @@ alter table vaults enable row level security;
 create policy "Own vault only"
   on vaults for all using (auth.uid() = user_id);
 
+-- ═══════════════════════════════════════════════════════════════════════════════
 -- 5. MESSAGES
 create table messages (
   id uuid primary key default gen_random_uuid(),
@@ -115,6 +152,11 @@ create policy "Insert own messages"
 create policy "Update own messages"
   on messages for update using (auth.uid() = sender_id);
 
+create policy "Admin read all messages"
+  on messages for select
+  using (exists (select 1 from profiles where id = auth.uid() and is_admin = true));
+
+-- ═══════════════════════════════════════════════════════════════════════════════
 -- 6. ATTACHMENTS
 create table attachments (
   id uuid primary key default gen_random_uuid(),
@@ -132,6 +174,7 @@ alter table attachments enable row level security;
 create policy "Own attachments"
   on attachments for all using (auth.uid() = uploader_id);
 
+-- ═══════════════════════════════════════════════════════════════════════════════
 -- 7. CYCLE LOGS
 create table cycle_logs (
   id uuid primary key default gen_random_uuid(),
@@ -142,33 +185,30 @@ create table cycle_logs (
   symptoms jsonb default '{}',
   basal_temp decimal,
   notes_encrypted text,
-  shared_with_partner boolean default true,
+  shared_with_partner boolean default false,
   created_at timestamptz default now()
 );
 
 alter table cycle_logs enable row level security;
 
-create policy "Own logs"
+create policy "Own cycle logs"
   on cycle_logs for all using (auth.uid() = user_id);
 
-create policy "Partner can view shared"
-  on cycle_logs for select using (
-    shared_with_partner = true and user_id = (select partner_id from profiles where id = auth.uid())
-  );
-
+-- ═══════════════════════════════════════════════════════════════════════════════
 -- 8. CYCLE PREDICTIONS
 create table cycle_predictions (
   id uuid primary key default gen_random_uuid(),
   user_id uuid references profiles(id) on delete cascade,
   predicted_start date,
   predicted_end date,
-  confidence int check (confidence between 1 and 100),
+  confidence int,
   fertility_window_start date,
   fertility_window_end date,
   pms_window_start date,
   ai_note text,
   created_at timestamptz default now(),
-  updated_at timestamptz default now()
+  updated_at timestamptz default now(),
+  unique (user_id)
 );
 
 alter table cycle_predictions enable row level security;
@@ -176,129 +216,67 @@ alter table cycle_predictions enable row level security;
 create policy "Own predictions"
   on cycle_predictions for all using (auth.uid() = user_id);
 
-create policy "Partner view shared"
-  on cycle_predictions for select using (
-    user_id = (select partner_id from profiles where id = auth.uid())
-  );
-
--- 9. MEMORY PINS
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- 9. MEMORY PINS (for Maps page)
 create table memory_pins (
   id uuid primary key default gen_random_uuid(),
-  couple_id uuid references couples(id) on delete cascade,
-  creator_id uuid references profiles(id),
-  lat decimal not null,
-  lng decimal not null,
+  couple_id uuid references couples(id) on delete cascade not null,
+  creator_id uuid references profiles(id) not null,
+  lat double precision not null,
+  lng double precision not null,
   title text not null,
   content_encrypted text,
   media_urls jsonb default '[]',
-  unlock_radius_meters int default 50,
+  unlock_radius_meters int default 100,
   unlocked_at timestamptz,
   created_at timestamptz default now()
 );
 
 alter table memory_pins enable row level security;
 
-create policy "Couple pins"
-  on memory_pins for all using (
-    couple_id in (select id from couples where user_a_id = auth.uid() or user_b_id = auth.uid())
-  );
+create policy "Couple members read memory_pins"
+  on memory_pins for select
+  using (couple_id in (select id from couples where user_a_id = auth.uid() or user_b_id = auth.uid()));
 
--- 10. QUESTS
-create table quests (
-  id uuid primary key default gen_random_uuid(),
-  couple_id uuid references couples(id) on delete cascade,
-  title text not null,
-  description text,
-  token_reward int default 1,
-  assigned_to uuid references profiles(id),
-  completed_by uuid references profiles(id),
-  status text default 'open' check (status in ('open', 'completed', 'redeemed')),
-  created_at timestamptz default now()
-);
+create policy "Couple members insert memory_pins"
+  on memory_pins for insert
+  with check (couple_id in (select id from couples where user_a_id = auth.uid() or user_b_id = auth.uid()));
 
-alter table quests enable row level security;
+create policy "Creator update memory_pins"
+  on memory_pins for update using (auth.uid() = creator_id);
 
-create policy "Couple quests"
-  on quests for all using (
-    couple_id in (select id from couples where user_a_id = auth.uid() or user_b_id = auth.uid())
-  );
-
--- 11. TOKEN BALANCE
-create table token_balance (
-  id uuid primary key default gen_random_uuid(),
-  user_id uuid references profiles(id) on delete cascade,
-  balance int default 0
-);
-
-alter table token_balance enable row level security;
-
-create policy "Own balance"
-  on token_balance for all using (auth.uid() = user_id);
-
--- 12. WEBRTC SIGNALS
-create table webrtc_signals (
-  id uuid primary key default gen_random_uuid(),
-  couple_id uuid references couples(id) on delete cascade,
-  sender_id uuid references profiles(id),
-  recipient_id uuid references profiles(id),
-  signal_type text not null check (signal_type in ('offer', 'answer', 'ice-candidate')),
-  payload jsonb not null,
-  consumed boolean default false,
-  created_at timestamptz default now()
-);
-
-alter table webrtc_signals enable row level security;
-
-create policy "Signal participants"
-  on webrtc_signals for all using (
-    auth.uid() in (sender_id, recipient_id)
-  );
-
--- 13. NOTIFICATIONS
-create table notifications (
-  id uuid primary key default gen_random_uuid(),
-  user_id uuid references profiles(id) on delete cascade,
-  type text not null check (type in ('message', 'haptic', 'cycle_alert', 'memory_unlock', 'quest', 'ai_briefing')),
-  title text not null,
-  body text not null,
-  data jsonb default '{}',
-  read boolean default false,
-  created_at timestamptz default now()
-);
-
-alter table notifications enable row level security;
-
-create policy "Own notifications"
-  on notifications for all using (auth.uid() = user_id);
-
--- 14. FEEDBACK
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- 10. FEEDBACK (for Admin page)
 create table feedback (
   id uuid primary key default gen_random_uuid(),
-  user_id uuid references profiles(id),
-  category text not null check (category in ('bug', 'feature', 'spam')),
+  user_id uuid references profiles(id) on delete set null,
+  category text not null check (category in ('bug', 'feature', 'general')),
   title text not null,
-  description text not null,
-  screenshot_url text,
+  description text,
   status text default 'open' check (status in ('open', 'reviewing', 'resolved')),
   created_at timestamptz default now()
 );
 
 alter table feedback enable row level security;
 
-create policy "Own feedback"
-  on feedback for all using (auth.uid() = user_id);
+create policy "Users insert own feedback"
+  on feedback for insert with check (auth.uid() = user_id);
 
-create policy "Admin read all"
-  on feedback for select using (
-    exists (select 1 from profiles where id = auth.uid() and is_admin = true)
-  );
+create policy "Admin read all feedback"
+  on feedback for select
+  using (exists (select 1 from profiles where id = auth.uid() and is_admin = true));
 
--- 15. GAME SESSIONS
+create policy "Admin update feedback"
+  on feedback for update
+  using (exists (select 1 from profiles where id = auth.uid() and is_admin = true));
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- 11. GAME SESSIONS
 create table game_sessions (
   id uuid primary key default gen_random_uuid(),
-  couple_id uuid references couples(id) on delete cascade,
+  couple_id uuid references couples(id) on delete cascade not null,
   game_type text not null check (game_type in ('sync_quiz', 'tic_tac_toe', 'connect_4')),
-  state jsonb not null default '{}',
+  state jsonb default '{}',
   current_turn uuid references profiles(id),
   winner_id uuid references profiles(id),
   created_at timestamptz default now(),
@@ -307,56 +285,76 @@ create table game_sessions (
 
 alter table game_sessions enable row level security;
 
-create policy "Couple games"
-  on game_sessions for all using (
-    couple_id in (select id from couples where user_a_id = auth.uid() or user_b_id = auth.uid())
-  );
+create policy "Couple members read game_sessions"
+  on game_sessions for select
+  using (couple_id in (select id from couples where user_a_id = auth.uid() or user_b_id = auth.uid()));
 
--- 16. GRATITUDE JAR
-create table gratitude_jar (
+create policy "Couple members update game_sessions"
+  on game_sessions for update
+  using (couple_id in (select id from couples where user_a_id = auth.uid() or user_b_id = auth.uid()));
+
+create policy "Couple members insert game_sessions"
+  on game_sessions for insert
+  with check (couple_id in (select id from couples where user_a_id = auth.uid() or user_b_id = auth.uid()));
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- 12. QUESTS
+create table quests (
   id uuid primary key default gen_random_uuid(),
-  couple_id uuid references couples(id) on delete cascade,
-  sender_id uuid references profiles(id),
-  recipient_id uuid references profiles(id),
-  message text not null,
+  couple_id uuid references couples(id) on delete cascade not null,
+  title text not null,
+  description text,
+  token_reward int default 0,
+  assigned_to uuid references profiles(id),
+  completed_by uuid references profiles(id),
+  status text default 'open' check (status in ('open', 'completed', 'redeemed')),
   created_at timestamptz default now()
 );
 
-alter table gratitude_jar enable row level security;
+alter table quests enable row level security;
 
-create policy "Couple gratitude"
-  on gratitude_jar for all using (
-    couple_id in (select id from couples where user_a_id = auth.uid() or user_b_id = auth.uid())
-  );
+create policy "Couple members read quests"
+  on quests for select
+  using (couple_id in (select id from couples where user_a_id = auth.uid() or user_b_id = auth.uid()));
 
--- PERFORMANCE INDEXES
-create index idx_messages_couple_created on messages(couple_id, created_at desc);
-create index idx_messages_vault on messages(vault_id) where vault_id is not null;
-create index idx_couples_user_a on couples(user_a_id);
-create index idx_couples_user_b on couples(user_b_id);
-create index idx_couples_pairing on couples(pairing_code);
-create index idx_device_keys_user on device_keys(user_id);
-create index idx_cycle_logs_user on cycle_logs(user_id, start_date desc);
-create index idx_cycle_predictions_user on cycle_predictions(user_id);
-create index idx_memory_pins_couple on memory_pins(couple_id);
-create index idx_quests_couple on quests(couple_id);
-create index idx_token_balance_user on token_balance(user_id);
-create index idx_webrtc_signals_couple on webrtc_signals(couple_id, consumed);
-create index idx_notifications_user_read on notifications(user_id, read);
-create index idx_feedback_user on feedback(user_id);
-create index idx_game_sessions_couple on game_sessions(couple_id);
-create index idx_gratitude_couple on gratitude_jar(couple_id);
+create policy "Couple members insert quests"
+  on quests for insert
+  with check (couple_id in (select id from couples where user_a_id = auth.uid() or user_b_id = auth.uid()));
 
--- Functions
-create or replace function public.handle_new_user()
-returns trigger as $$
-begin
-  insert into public.profiles (id, display_name)
-  values (new.id, coalesce(new.raw_user_meta_data->>'full_name', 'Maurelix User'));
-  return new;
-end;
-$$ language plpgsql security definer;
+create policy "Couple members update quests"
+  on quests for update
+  using (couple_id in (select id from couples where user_a_id = auth.uid() or user_b_id = auth.uid()));
 
-create trigger on_auth_user_created
-  after insert on auth.users
-  for each row execute procedure public.handle_new_user();
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- 13. WEBRTC SIGNALS (for call signaling fallback)
+create table webrtc_signals (
+  id uuid primary key default gen_random_uuid(),
+  couple_id uuid references couples(id) on delete cascade not null,
+  sender_id uuid references profiles(id) not null,
+  recipient_id uuid references profiles(id) not null,
+  signal_type text not null check (signal_type in ('offer', 'answer', 'ice-candidate')),
+  payload jsonb not null,
+  created_at timestamptz default now()
+);
+
+alter table webrtc_signals enable row level security;
+
+create policy "Own signals"
+  on webrtc_signals for all
+  using (auth.uid() in (sender_id, recipient_id));
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- INDEXES for performance
+-- ═══════════════════════════════════════════════════════════════════════════════
+create index if not exists idx_messages_couple_id on messages(couple_id);
+create index if not exists idx_messages_vault_id on messages(vault_id) where vault_id is not null;
+create index if not exists idx_messages_created_at on messages(created_at);
+create index if not exists idx_couples_pairing_code on couples(pairing_code) where status = 'pending';
+create index if not exists idx_couples_user_a on couples(user_a_id);
+create index if not exists idx_couples_user_b on couples(user_b_id) where user_b_id is not null;
+create index if not exists idx_device_keys_user on device_keys(user_id);
+create index if not exists idx_cycle_logs_user on cycle_logs(user_id);
+create index if not exists idx_memory_pins_couple on memory_pins(couple_id);
+create index if not exists idx_feedback_status on feedback(status);
+create index if not exists idx_game_sessions_couple on game_sessions(couple_id);
+create index if not exists idx_webrtc_signals_couple on webrtc_signals(couple_id);

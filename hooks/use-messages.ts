@@ -36,21 +36,41 @@ export function useMessages(coupleId: string | null, vaultId: string | null = nu
     fetchMessages();
     if (!coupleId) return;
 
+    // CRITICAL FIX: Use a channel name that includes vaultId so we don't leak
+    // vault messages into shared space realtime subscriptions.
+    const channelName = vaultId
+      ? `messages:vault:${coupleId}:${vaultId}`
+      : `messages:shared:${coupleId}`;
+
     const channel = supabase
-      .channel(`messages:${coupleId}`)
+      .channel(channelName)
       .on(
         "postgres_changes",
-        { event: "INSERT", schema: "public", table: "messages", filter: `couple_id=eq.${coupleId}` },
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "messages",
+          filter: `couple_id=eq.${coupleId}`,
+        },
         (payload) => {
           const newMsg = payload.new as Message;
-          if (vaultId && !newMsg.vault_id) return;
-          if (!vaultId && newMsg.vault_id) return;
+          // Filter by vault_id to prevent cross-contamination
+          if (vaultId) {
+            if (newMsg.vault_id !== vaultId) return;
+          } else {
+            if (newMsg.vault_id !== null && newMsg.vault_id !== undefined) return;
+          }
           setMessages((prev) => [...prev, newMsg]);
         }
       )
       .on(
         "postgres_changes",
-        { event: "UPDATE", schema: "public", table: "messages", filter: `couple_id=eq.${coupleId}` },
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "messages",
+          filter: `couple_id=eq.${coupleId}`,
+        },
         (payload) => {
           const updated = payload.new as Message;
           setMessages((prev) => prev.map((m) => (m.id === updated.id ? updated : m)));
