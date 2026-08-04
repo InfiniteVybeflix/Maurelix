@@ -358,3 +358,40 @@ create index if not exists idx_memory_pins_couple on memory_pins(couple_id);
 create index if not exists idx_feedback_status on feedback(status);
 create index if not exists idx_game_sessions_couple on game_sessions(couple_id);
 create index if not exists idx_webrtc_signals_couple on webrtc_signals(couple_id);
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- 14. AUTH TRIGGER — Auto-create profile on new user signup
+--    CRITICAL: This was MISSING from the original schema (001-003).
+--    Without it, no profile row exists when a user signs up, causing:
+--      • Onboarding data (avatar, display_name, love_language) to fail silently
+--      • Pairing code verification to fail when updating partner_id
+--      • completePairing() to fail when setting onboarding_completed
+--    This trigger runs AFTER INSERT on auth.users and creates the profile row.
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+create or replace function public.handle_new_user()
+returns trigger
+language plpgsql
+security definer set search_path = public
+as $$
+begin
+  insert into public.profiles (id, display_name)
+  values (
+    new.id,
+    coalesce(
+      new.raw_user_meta_data ->> 'display_name',
+      new.raw_user_meta_data ->> 'full_name',
+      split_part(new.email, '@', 1),
+      'Maurelix User'
+    )
+  );
+  return new;
+end;
+$$;
+
+-- Drop existing trigger to allow clean re-runs
+drop trigger if exists on_auth_user_created on auth.users;
+
+create trigger on_auth_user_created
+  after insert on auth.users
+  for each row execute function public.handle_new_user();

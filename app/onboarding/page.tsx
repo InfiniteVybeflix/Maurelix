@@ -79,6 +79,8 @@ export default function OnboardingPage() {
   const [bioAttachment, setBioAttachment] = useState<"platform" | "cross-platform">("platform");
   const [bioError, setBioError] = useState("");
   const [bioWarning, setBioWarning] = useState("");
+  const [avatarUploading, setAvatarUploading] = useState(false);
+  const [avatarError, setAvatarError] = useState("");
 
   const userRef = useRef<any>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -114,7 +116,13 @@ export default function OnboardingPage() {
       if (!user) return;
       if (debounceRef.current) clearTimeout(debounceRef.current);
       debounceRef.current = setTimeout(async () => {
-        await supabase.from("profiles").update(updates).eq("id", user.id);
+        const { error } = await supabase
+          .from("profiles")
+          .upsert({ id: user.id, ...updates }, { onConflict: "id" });
+        if (error) {
+          console.error("[syncToDb] Profile upsert failed:", error.message);
+          setGlobalError("Failed to save your info. Please refresh and try again.");
+        }
       }, 600);
     },
     [supabase]
@@ -132,16 +140,57 @@ export default function OnboardingPage() {
     async (file: File) => {
       const user = userRef.current;
       if (!user) return;
-      const path = `avatars/${user.id}/${Date.now()}.jpg`;
-      const { error } = await supabase.storage
-        .from("avatars")
-        .upload(path, file, { contentType: file.type });
-      if (!error) {
-        const { data } = supabase.storage.from("avatars").getPublicUrl(path);
-        const updates = { avatar_url: data.publicUrl };
-        setProfile((p: any) => ({ ...p, ...updates }));
-        await supabase.from("profiles").update(updates).eq("id", user.id);
+
+      // Validate file size (max 5MB)
+      const MAX_SIZE = 5 * 1024 * 1024;
+      if (file.size > MAX_SIZE) {
+        setAvatarError("Image is too large. Maximum size is 5MB.");
+        return;
       }
+
+      // Validate file type
+      if (!file.type.startsWith("image/")) {
+        setAvatarError("Please select a valid image file.");
+        return;
+      }
+
+      setAvatarUploading(true);
+      setAvatarError("");
+
+      const path = `avatars/${user.id}/${Date.now()}.jpg`;
+      const { error: uploadError } = await supabase.storage
+        .from("avatars")
+        .upload(path, file, { contentType: file.type, upsert: true });
+
+      if (uploadError) {
+        console.error("[Avatar Upload] Storage error:", uploadError);
+        setAvatarError(
+          uploadError.message.toLowerCase().includes("bucket")
+            ? "Storage bucket not found. Ask your admin to create the 'avatars' bucket in Supabase."
+            : "Failed to upload image. Please try again."
+        );
+        setAvatarUploading(false);
+        // Reset input so the same file can be retried
+        if (fileInputRef.current) fileInputRef.current.value = "";
+        return;
+      }
+
+      const { data } = supabase.storage.from("avatars").getPublicUrl(path);
+      const updates = { id: user.id, avatar_url: data.publicUrl };
+      setProfile((p: any) => ({ ...p, ...updates }));
+
+      const { error: profileError } = await supabase
+        .from("profiles")
+        .upsert(updates, { onConflict: "id" });
+
+      if (profileError) {
+        console.error("[Avatar Upload] Profile upsert error:", profileError);
+        setAvatarError("Image uploaded, but failed to save to your profile.");
+      }
+
+      setAvatarUploading(false);
+      // Reset input so the same file can be selected again
+      if (fileInputRef.current) fileInputRef.current.value = "";
     },
     [supabase]
   );
@@ -414,30 +463,57 @@ export default function OnboardingPage() {
               <h2 className="text-2xl font-bold text-white mb-2">Add a photo</h2>
               <p className="text-white/40 text-sm mb-8">Let your partner see your face.</p>
               <div
-                className="relative w-32 h-32 mx-auto mb-6 rounded-full overflow-hidden border-2 border-dashed border-white/20 hover:border-[#FF6B8A]/40 transition-colors cursor-pointer group"
-                onClick={() => fileInputRef.current?.click()}
+                className={`relative w-32 h-32 mx-auto mb-6 rounded-full overflow-hidden border-2 border-dashed transition-colors cursor-pointer group ${
+                  avatarUploading
+                    ? "border-[#FF6B8A]/40"
+                    : "border-white/20 hover:border-[#FF6B8A]/40"
+                }`}
+                onClick={() => {
+                  if (!avatarUploading) fileInputRef.current?.click();
+                }}
               >
                 {profile.avatar_url ? (
                   <img src={profile.avatar_url} alt="" className="w-full h-full object-cover" />
                 ) : (
                   <div className="w-full h-full flex items-center justify-center">
-                    <Camera className="w-8 h-8 text-white/30 group-hover:text-[#FF6B8A]/60 transition-colors" />
+                    <Camera className={`w-8 h-8 transition-colors ${
+                      avatarUploading ? "text-[#FF6B8A]/60" : "text-white/30 group-hover:text-[#FF6B8A]/60"
+                    }`} />
                   </div>
                 )}
-                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                  <Camera className="w-6 h-6 text-white" />
-                </div>
+                {/* Uploading spinner overlay */}
+                {avatarUploading && (
+                  <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
+                    <div className="w-6 h-6 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  </div>
+                )}
+                {/* Hover overlay — hidden during upload */}
+                {!avatarUploading && (
+                  <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                    <Camera className="w-6 h-6 text-white" />
+                  </div>
+                )}
               </div>
               <input
                 ref={fileInputRef}
                 type="file"
                 accept="image/*"
                 className="hidden"
+                disabled={avatarUploading}
                 onChange={(e) => {
                   const file = e.target.files?.[0];
                   if (file) handleAvatarUpload(file);
                 }}
               />
+              {avatarError && (
+                <motion.p
+                  initial={{ opacity: 0, y: 5 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="text-xs text-red-400 bg-red-400/10 px-3 py-2 rounded-xl mb-3 max-w-xs mx-auto"
+                >
+                  {avatarError}
+                </motion.p>
+              )}
               <p className="text-xs text-white/20">Optional — you can add one later</p>
             </motion.div>
           )}
