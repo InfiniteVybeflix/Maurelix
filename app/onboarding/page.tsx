@@ -13,6 +13,8 @@ import {
   ShieldCheck,
   Fingerprint,
   AlertCircle,
+  Smartphone,
+  KeyRound,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import {
@@ -29,7 +31,6 @@ import { useBiometric } from "@/hooks/use-biometric";
 import Starfield from "@/components/onboarding/starfield";
 
 const STEPS = 8;
-const COLORS = ["#FF6B8A", "#a78bfa", "#60a5fa", "#fbbf24", "#34d399", "#f472b6"];
 const LOVE_LANGUAGES = [
   { key: "words", label: "Words of Affirmation", emoji: "💬" },
   { key: "acts", label: "Acts of Service", emoji: "🤝" },
@@ -77,6 +78,7 @@ export default function OnboardingPage() {
 
   // Biometric state
   const [bioEnabled, setBioEnabled] = useState(false);
+  const [bioAttachment, setBioAttachment] = useState<"platform" | "cross-platform">("platform");
   const [bioError, setBioError] = useState("");
   const [bioWarning, setBioWarning] = useState("");
 
@@ -123,7 +125,6 @@ export default function OnboardingPage() {
     [supabase]
   );
 
-  // Immediate local state update + debounced DB sync
   const updateProfile = useCallback(
     (updates: Record<string, any>) => {
       setProfile((p: any) => ({ ...p, ...updates }));
@@ -204,10 +205,12 @@ export default function OnboardingPage() {
       encryption_salt: u8ToHex(salt),
     });
 
+    // CRITICAL FIX: Remove double quotes from .or() filter — PostgREST treats
+    // quoted UUIDs as literal strings with quotes, causing a type mismatch error.
     const { data: couple } = await supabase
       .from("couples")
       .select("id")
-      .or(`user_a_id.eq."${user.id}",user_b_id.eq."${user.id}"`)
+      .or(`user_a_id.eq.${user.id},user_b_id.eq.${user.id}`)
       .single();
 
     if (couple) {
@@ -301,7 +304,8 @@ export default function OnboardingPage() {
 
     const result = await registerBio(
       user.id,
-      profile.display_name || user.email || "Maurelix User"
+      profile.display_name || user.email || "Maurelix User",
+      { attachment: bioAttachment }
     );
 
     if (result.success && result.credentialId) {
@@ -316,7 +320,7 @@ export default function OnboardingPage() {
       nextStep();
     } else {
       setBioError(
-        result.error || "Could not enable fingerprint. You can skip this and set it up later in Settings."
+        result.error || "Could not enable biometric login. You can skip this and set it up later in Settings."
       );
       setLoading(false);
     }
@@ -605,20 +609,20 @@ export default function OnboardingPage() {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -20 }}
-              className="w-full max-w-md text-center"
+              className="w-full max-w-md"
             >
               <div className="w-16 h-16 rounded-full bg-[#60a5fa]/10 border border-[#60a5fa]/20 flex items-center justify-center mx-auto mb-6">
                 <Fingerprint className="w-7 h-7 text-[#60a5fa]" />
               </div>
-              <h2 className="text-2xl font-bold text-white mb-2">Biometric Login</h2>
-              <p className="text-white/40 text-sm mb-8">Unlock Maurelix with your fingerprint or face.</p>
+              <h2 className="text-2xl font-bold text-white text-center mb-2">Biometric Login</h2>
+              <p className="text-white/40 text-sm text-center mb-8">Unlock Maurelix with your fingerprint or face.</p>
 
               {!bioChecked ? (
                 <div className="flex items-center justify-center py-8">
                   <div className="w-8 h-8 border-2 border-[#60a5fa]/30 border-t-[#60a5fa] rounded-full animate-spin" />
                 </div>
               ) : !bioSupported ? (
-                <div className="p-4 rounded-2xl bg-white/[0.02] border border-white/10">
+                <div className="p-4 rounded-2xl bg-white/[0.02] border border-white/10 text-center">
                   <AlertCircle className="w-6 h-6 text-white/30 mx-auto mb-2" />
                   <p className="text-sm text-white/40">
                     Biometric authentication is not available on this device or browser.
@@ -631,7 +635,8 @@ export default function OnboardingPage() {
                 </div>
               ) : (
                 <>
-                  <label className="flex items-center gap-3 px-5 py-4 rounded-2xl bg-white/[0.02] border border-white/10 cursor-pointer hover:border-[#60a5fa]/20 transition-colors">
+                  {/* Master toggle */}
+                  <label className="flex items-center gap-3 px-5 py-4 rounded-2xl bg-white/[0.02] border border-white/10 cursor-pointer hover:border-[#60a5fa]/20 transition-colors mb-4">
                     <input
                       type="checkbox"
                       checked={bioEnabled}
@@ -642,8 +647,74 @@ export default function OnboardingPage() {
                       }}
                       className="w-5 h-5 rounded accent-[#60a5fa]"
                     />
-                    <span className="text-white font-medium">Enable fingerprint / face unlock</span>
+                    <span className="text-white font-medium">Enable biometric login</span>
                   </label>
+
+                  {/* Attachment choice — only show when enabled */}
+                  <AnimatePresence>
+                    {bioEnabled && (
+                      <motion.div
+                        initial={{ opacity: 0, height: 0 }}
+                        animate={{ opacity: 1, height: "auto" }}
+                        exit={{ opacity: 0, height: 0 }}
+                        className="space-y-3 overflow-hidden"
+                      >
+                        <p className="text-xs text-white/30 px-1">Choose your authenticator:</p>
+
+                        {isPlatformAvailable && (
+                          <label
+                            className={`flex items-center gap-3 px-5 py-4 rounded-2xl border transition-all cursor-pointer ${
+                              bioAttachment === "platform"
+                                ? "bg-[#60a5fa]/10 border-[#60a5fa]/30"
+                                : "bg-white/[0.02] border-white/10 hover:border-white/20"
+                            }`}
+                          >
+                            <input
+                              type="radio"
+                              name="bio-attachment"
+                              value="platform"
+                              checked={bioAttachment === "platform"}
+                              onChange={() => setBioAttachment("platform")}
+                              className="w-4 h-4 accent-[#60a5fa]"
+                            />
+                            <Smartphone className="w-5 h-5 text-[#60a5fa] shrink-0" />
+                            <div>
+                              <span className="text-white font-medium text-sm">Device fingerprint / face unlock</span>
+                              <p className="text-xs text-white/30">Use your phone&apos;s lock screen biometric</p>
+                            </div>
+                          </label>
+                        )}
+
+                        <label
+                          className={`flex items-center gap-3 px-5 py-4 rounded-2xl border transition-all cursor-pointer ${
+                            bioAttachment === "cross-platform"
+                              ? "bg-[#60a5fa]/10 border-[#60a5fa]/30"
+                              : "bg-white/[0.02] border-white/10 hover:border-white/20"
+                          }`}
+                        >
+                          <input
+                            type="radio"
+                            name="bio-attachment"
+                            value="cross-platform"
+                            checked={bioAttachment === "cross-platform"}
+                            onChange={() => setBioAttachment("cross-platform")}
+                            className="w-4 h-4 accent-[#60a5fa]"
+                          />
+                          <KeyRound className="w-5 h-5 text-[#60a5fa] shrink-0" />
+                          <div>
+                            <span className="text-white font-medium text-sm">Security key or external device</span>
+                            <p className="text-xs text-white/30">YubiKey, phone via QR, or other FIDO2 key</p>
+                          </div>
+                        </label>
+
+                        {!isPlatformAvailable && (
+                          <p className="text-xs text-amber-400/70 px-1">
+                            Your device does not report a built-in fingerprint/face authenticator. If you believe this is wrong, try the external device option or check your device settings.
+                          </p>
+                        )}
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
 
                   {bioWarning && (
                     <motion.p
@@ -663,12 +734,6 @@ export default function OnboardingPage() {
                     >
                       {bioError}
                     </motion.p>
-                  )}
-
-                  {!isPlatformAvailable && bioEnabled && (
-                    <p className="mt-3 text-xs text-white/30">
-                      No platform authenticator detected. You may be prompted to use a security key or phone instead.
-                    </p>
                   )}
                 </>
               )}

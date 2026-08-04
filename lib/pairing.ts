@@ -11,7 +11,6 @@ export interface PairingError {
 }
 
 export async function generatePairingCode(): Promise<string> {
-  // Cryptographically insecure random is fine for a 6-digit display code
   return Math.floor(100000 + Math.random() * 900000).toString();
 }
 
@@ -38,10 +37,13 @@ export async function createPairingCode(): Promise<
   }
 
   // 2. Check if user already has an ACTIVE couple
+  // CRITICAL FIX: Do NOT wrap UUID values in double quotes inside .or() strings.
+  // PostgREST interprets quoted values literally, so eq."uuid" tries to match
+  // the string "uuid" (with quotes) against a UUID column, causing a type error.
   const { data: existingActive, error: activeError } = await supabase
     .from("couples")
     .select("id, status")
-    .or(`user_a_id.eq."${user.id}",user_b_id.eq."${user.id}"`)
+    .or(`user_a_id.eq.${user.id},user_b_id.eq.${user.id}`)
     .eq("status", "active")
     .maybeSingle();
 
@@ -214,7 +216,6 @@ export async function verifyPairingCode(
       profileError?.message,
       partnerProfileError?.message
     );
-    // Non-fatal: couple is linked, profiles may need manual fix
   }
 
   return { success: true };

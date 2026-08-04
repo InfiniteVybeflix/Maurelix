@@ -31,6 +31,11 @@ function getRpId(): string | undefined {
   return hostname;
 }
 
+export interface BiometricRegisterOptions {
+  /** "platform" = device fingerprint/face. "cross-platform" = security key/phone QR. undefined = auto-detect. */
+  attachment?: "platform" | "cross-platform";
+}
+
 export function useBiometric() {
   const [isSupported, setIsSupported] = useState(false);
   const [isPlatformAvailable, setIsPlatformAvailable] = useState(false);
@@ -47,7 +52,6 @@ export function useBiometric() {
         return;
       }
 
-      // Check secure context — WebAuthn requires HTTPS
       if (!window.isSecureContext) {
         console.warn("[Biometric] Not in secure context (HTTPS required)");
         setIsSupported(false);
@@ -57,7 +61,6 @@ export function useBiometric() {
 
       setIsSupported(true);
 
-      // Check if platform authenticator is available
       try {
         const available = await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
         setIsPlatformAvailable(available);
@@ -73,11 +76,13 @@ export function useBiometric() {
   const register = useCallback(
     async (
       userId: string,
-      userName: string
+      userName: string,
+      options?: BiometricRegisterOptions
     ): Promise<{
       credentialId: string;
       success: boolean;
       error?: string;
+      usedAttachment?: "platform" | "cross-platform";
     }> => {
       try {
         if (typeof window === "undefined" || !window.PublicKeyCredential) {
@@ -96,37 +101,48 @@ export function useBiometric() {
           };
         }
 
+        // Determine attachment preference
+        let attachment: "platform" | "cross-platform" | undefined = options?.attachment;
+
+        // If caller didn't specify, try platform first (lock screen fingerprint/face)
+        if (attachment === undefined) {
+          try {
+            const platformAvailable = await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
+            if (platformAvailable) {
+              attachment = "platform";
+            }
+          } catch {
+            // Browser doesn't support the check — leave as undefined (any)
+          }
+        }
+
         const challenge = crypto.getRandomValues(new Uint8Array(32));
         const userIdBuffer = new TextEncoder().encode(userId);
         const rpId = getRpId();
 
-        const publicKeyCredentialCreationOptions: PublicKeyCredentialCreationOptions =
-          {
-            challenge,
-            rp: {
-              name: "Maurelix",
-              id: rpId,
-            },
-            user: {
-              id: userIdBuffer,
-              name: userName,
-              displayName: userName,
-            },
-            pubKeyCredParams: [
-              { alg: -7, type: "public-key" },
-              { alg: -257, type: "public-key" },
-            ],
-            authenticatorSelection: {
-              // Allow both platform and cross-platform authenticators
-              // "platform" = TouchID/FaceID/Windows Hello only
-              // undefined = any available authenticator
-              authenticatorAttachment: undefined,
-              userVerification: "required",
-              residentKey: "preferred",
-            },
-            attestation: "none",
-            timeout: 60000,
-          };
+        const publicKeyCredentialCreationOptions: PublicKeyCredentialCreationOptions = {
+          challenge,
+          rp: {
+            name: "Maurelix",
+            id: rpId,
+          },
+          user: {
+            id: userIdBuffer,
+            name: userName,
+            displayName: userName,
+          },
+          pubKeyCredParams: [
+            { alg: -7, type: "public-key" },
+            { alg: -257, type: "public-key" },
+          ],
+          authenticatorSelection: {
+            authenticatorAttachment: attachment,
+            userVerification: "required",
+            residentKey: "preferred",
+          },
+          attestation: "none",
+          timeout: 60000,
+        };
 
         const credential = await navigator.credentials.create({
           publicKey: publicKeyCredentialCreationOptions,
@@ -142,12 +158,15 @@ export function useBiometric() {
 
         const pkCred = credential as PublicKeyCredential;
         const credId = u8ToB64(new Uint8Array(pkCred.rawId));
-        return { success: true, credentialId: credId };
+        return {
+          success: true,
+          credentialId: credId,
+          usedAttachment: attachment,
+        };
       } catch (err: any) {
         console.error("[Biometric Register] Error:", err);
         let message = err.message || "Biometric registration failed.";
 
-        // Translate common WebAuthn errors into human-friendly messages
         if (err.name === "NotAllowedError") {
           message =
             "Permission denied. Biometric registration was blocked. Ensure you are on HTTPS and have granted permission.";
@@ -158,7 +177,7 @@ export function useBiometric() {
           message = "Biometric registration was cancelled.";
         } else if (err.name === "NotSupportedError") {
           message =
-            "No compatible biometric authenticator found on this device.";
+            "No compatible biometric authenticator found on this device. If you want to use your lock screen fingerprint, make sure it is set up in your device settings and try again.";
         } else if (err.name === "InvalidStateError") {
           message =
             "A credential already exists for this account. Please remove it from your device settings first.";
@@ -198,13 +217,12 @@ export function useBiometric() {
           },
         ];
 
-        const publicKeyCredentialRequestOptions: PublicKeyCredentialRequestOptions =
-          {
-            challenge,
-            allowCredentials,
-            userVerification: "required",
-            timeout: 60000,
-          };
+        const publicKeyCredentialRequestOptions: PublicKeyCredentialRequestOptions = {
+          challenge,
+          allowCredentials,
+          userVerification: "required",
+          timeout: 60000,
+        };
 
         const assertion = await navigator.credentials.get({
           publicKey: publicKeyCredentialRequestOptions,
