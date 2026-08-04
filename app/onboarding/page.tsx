@@ -50,7 +50,7 @@ const SECURITY_QUESTIONS = [
 export default function OnboardingPage() {
   const router = useRouter();
   const supabase = createClient();
-  const { isSupported: bioSupported, isPlatformAvailable, checked: bioChecked, register: registerBio } =
+  const { isSupported: bioSupported, checked: bioChecked, register: registerBio } =
     useBiometric();
 
   const [step, setStep] = useState(0);
@@ -69,14 +69,12 @@ export default function OnboardingPage() {
   const [pinConfirm, setPinConfirm] = useState("");
   const [pinError, setPinError] = useState("");
 
-  // Security questions state
   const [sq1, setSq1] = useState("");
   const [sq2, setSq2] = useState("");
   const [ans1, setAns1] = useState("");
   const [ans2, setAns2] = useState("");
   const [sqError, setSqError] = useState("");
 
-  // Biometric state
   const [bioEnabled, setBioEnabled] = useState(false);
   const [bioAttachment, setBioAttachment] = useState<"platform" | "cross-platform">("platform");
   const [bioError, setBioError] = useState("");
@@ -86,7 +84,6 @@ export default function OnboardingPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const debounceRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Load user once
   useEffect(() => {
     supabase.auth.getUser().then(({ data: { user } }) => {
       if (user) {
@@ -103,7 +100,6 @@ export default function OnboardingPage() {
     });
   }, [supabase]);
 
-  // Pairing expiry cleanup
   useEffect(() => {
     if (!pairingExpiry) return;
     const interval = setInterval(() => {
@@ -112,7 +108,6 @@ export default function OnboardingPage() {
     return () => clearInterval(interval);
   }, [pairingExpiry]);
 
-  // Debounced profile sync to DB
   const syncToDb = useCallback(
     (updates: Record<string, any>) => {
       const user = userRef.current;
@@ -205,19 +200,30 @@ export default function OnboardingPage() {
       encryption_salt: u8ToHex(salt),
     });
 
-    // CRITICAL FIX: Remove double quotes from .or() filter — PostgREST treats
-    // quoted UUIDs as literal strings with quotes, causing a type mismatch error.
-    const { data: couple } = await supabase
+    // CRITICAL FIX: Replace .or() with two separate queries to avoid PostgREST issues.
+    let coupleId: string | null = null;
+
+    const { data: asA } = await supabase
       .from("couples")
       .select("id")
-      .or(`user_a_id.eq.${user.id},user_b_id.eq.${user.id}`)
-      .single();
+      .eq("user_a_id", user.id)
+      .maybeSingle();
+    if (asA) coupleId = asA.id;
 
-    if (couple) {
+    if (!coupleId) {
+      const { data: asB } = await supabase
+        .from("couples")
+        .select("id")
+        .eq("user_b_id", user.id)
+        .maybeSingle();
+      if (asB) coupleId = asB.id;
+    }
+
+    if (coupleId) {
       await supabase
         .from("couples")
         .update({ encryption_pub_key: JSON.stringify(publicKey) })
-        .eq("id", couple.id);
+        .eq("id", coupleId);
     }
   };
 
@@ -635,7 +641,6 @@ export default function OnboardingPage() {
                 </div>
               ) : (
                 <>
-                  {/* Master toggle */}
                   <label className="flex items-center gap-3 px-5 py-4 rounded-2xl bg-white/[0.02] border border-white/10 cursor-pointer hover:border-[#60a5fa]/20 transition-colors mb-4">
                     <input
                       type="checkbox"
@@ -650,7 +655,6 @@ export default function OnboardingPage() {
                     <span className="text-white font-medium">Enable biometric login</span>
                   </label>
 
-                  {/* Attachment choice — only show when enabled */}
                   <AnimatePresence>
                     {bioEnabled && (
                       <motion.div
@@ -661,29 +665,27 @@ export default function OnboardingPage() {
                       >
                         <p className="text-xs text-white/30 px-1">Choose your authenticator:</p>
 
-                        {isPlatformAvailable && (
-                          <label
-                            className={`flex items-center gap-3 px-5 py-4 rounded-2xl border transition-all cursor-pointer ${
-                              bioAttachment === "platform"
-                                ? "bg-[#60a5fa]/10 border-[#60a5fa]/30"
-                                : "bg-white/[0.02] border-white/10 hover:border-white/20"
-                            }`}
-                          >
-                            <input
-                              type="radio"
-                              name="bio-attachment"
-                              value="platform"
-                              checked={bioAttachment === "platform"}
-                              onChange={() => setBioAttachment("platform")}
-                              className="w-4 h-4 accent-[#60a5fa]"
-                            />
-                            <Smartphone className="w-5 h-5 text-[#60a5fa] shrink-0" />
-                            <div>
-                              <span className="text-white font-medium text-sm">Device fingerprint / face unlock</span>
-                              <p className="text-xs text-white/30">Use your phone&apos;s lock screen biometric</p>
-                            </div>
-                          </label>
-                        )}
+                        <label
+                          className={`flex items-center gap-3 px-5 py-4 rounded-2xl border transition-all cursor-pointer ${
+                            bioAttachment === "platform"
+                              ? "bg-[#60a5fa]/10 border-[#60a5fa]/30"
+                              : "bg-white/[0.02] border-white/10 hover:border-white/20"
+                          }`}
+                        >
+                          <input
+                            type="radio"
+                            name="bio-attachment"
+                            value="platform"
+                            checked={bioAttachment === "platform"}
+                            onChange={() => setBioAttachment("platform")}
+                            className="w-4 h-4 accent-[#60a5fa]"
+                          />
+                          <Smartphone className="w-5 h-5 text-[#60a5fa] shrink-0" />
+                          <div>
+                            <span className="text-white font-medium text-sm">Device fingerprint / face unlock</span>
+                            <p className="text-xs text-white/30">Use your phone&apos;s lock screen biometric</p>
+                          </div>
+                        </label>
 
                         <label
                           className={`flex items-center gap-3 px-5 py-4 rounded-2xl border transition-all cursor-pointer ${
@@ -706,12 +708,6 @@ export default function OnboardingPage() {
                             <p className="text-xs text-white/30">YubiKey, phone via QR, or other FIDO2 key</p>
                           </div>
                         </label>
-
-                        {!isPlatformAvailable && (
-                          <p className="text-xs text-amber-400/70 px-1">
-                            Your device does not report a built-in fingerprint/face authenticator. If you believe this is wrong, try the external device option or check your device settings.
-                          </p>
-                        )}
                       </motion.div>
                     )}
                   </AnimatePresence>
@@ -812,7 +808,7 @@ export default function OnboardingPage() {
                         <div>
                           <p className="text-sm text-red-400">{pairingCodeError}</p>
                           <p className="text-xs text-red-400/60 mt-1">
-                            If this persists, ensure your Supabase database has the RLS policies from migration 003_fix_pairing_rls.sql applied.
+                            Open your browser&apos;s DevTools (F12 → Console) and screenshot the logs for the developer.
                           </p>
                         </div>
                       </div>
